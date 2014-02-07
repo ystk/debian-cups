@@ -1,9 +1,9 @@
 dnl
-dnl "$Id: cups-image.m4 8344 2009-02-10 17:05:35Z mike $"
+dnl "$Id: cups-image.m4 10317 2012-03-01 00:05:55Z mike $"
 dnl
-dnl   Image library/filter stuff for the Common UNIX Printing System (CUPS).
+dnl   Image library/filter stuff for CUPS.
 dnl
-dnl   Copyright 2007-2009 by Apple Inc.
+dnl   Copyright 2007-2011 by Apple Inc.
 dnl   Copyright 1997-2006 by Easy Software Products, all rights reserved.
 dnl
 dnl   These coded instructions, statements, and computer programs are the
@@ -16,17 +16,20 @@ dnl
 dnl See if we want the image filters included at all...
 AC_ARG_ENABLE(image, [  --enable-image          always build the image filters])
 
+DEFAULT_IMAGEFILTERS="#"
 IMGFILTERS=""
 if test "x$enable_image" != xno; then
         AC_MSG_CHECKING(whether to build image filters)
         if test "x$enable_image" = xyes -o $uname != Darwin; then
 		IMGFILTERS="imagetops imagetoraster"
+		DEFAULT_IMAGEFILTERS=""
                 AC_MSG_RESULT(yes)
         else
                 AC_MSG_RESULT(no)
         fi
 fi
 
+AC_SUBST(DEFAULT_IMAGEFILTERS)
 AC_SUBST(IMGFILTERS)
 
 dnl Check for image libraries...
@@ -63,11 +66,16 @@ else
 fi
 
 dnl ZLIB library...
+INSTALL_GZIP=""
 AC_CHECK_HEADER(zlib.h,
     AC_CHECK_LIB(z, gzgets,
 	AC_DEFINE(HAVE_LIBZ)
 	LIBZ="-lz"
-	LIBS="$LIBS -lz"))
+	LIBS="$LIBS -lz"
+	if test "x$GZIP" != x; then
+		INSTALL_GZIP="-z"
+	fi))
+AC_SUBST(INSTALL_GZIP)
 
 dnl PNG library...
 if test x$enable_png != xno; then
@@ -105,5 +113,5 @@ AC_SUBST(EXPORT_LIBZ)
 AC_CHECK_HEADER(stdlib.h,AC_DEFINE(HAVE_STDLIB_H))
 
 dnl
-dnl End of "$Id: cups-image.m4 8344 2009-02-10 17:05:35Z mike $".
+dnl End of "$Id: cups-image.m4 10317 2012-03-01 00:05:55Z mike $".
 dnl

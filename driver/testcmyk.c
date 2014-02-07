@@ -1,9 +1,9 @@
 /*
- * "$Id: testcmyk.c 7315 2008-02-15 22:26:48Z mike $"
+ * "$Id: testcmyk.c 9982 2011-09-09 17:32:52Z mike $"
  *
- *   Test the CMYK color separation code for ESP Print Pro.
+ *   Test the CMYK color separation code for CUPS.
  *
- *   Copyright 2007 by Apple Inc.
+ *   Copyright 2007-2011 by Apple Inc.
  *   Copyright 1993-2006 by Easy Software Products, All Rights Reserved.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -23,13 +23,13 @@
  * Include necessary headers.
  */
 
-#include <cups/string.h>
+#include <cups/string-private.h>
 #include "driver.h"
 #include <sys/stat.h>
 
 
-void	test_gray(int num_comps, const char *basename);
-void	test_rgb(int num_comps, const char *basename);
+void	test_gray(int num_comps, const char *base);
+void	test_rgb(int num_comps, const char *base);
 
 
 /*
@@ -78,7 +78,7 @@ main(int  argc,					/* I - Number of command-line arguments */
 
 void
 test_gray(int        num_comps,		/* I - Number of components */
-	  const char *basename)		/* I - Base filename of output */
+	  const char *base)		/* I - Base filename of output */
 {
   int			i;		/* Looping var */
   char			filename[255];	/* Output filename */
@@ -147,13 +147,13 @@ test_gray(int        num_comps,		/* I - Number of components */
 
   for (i = 0; i < num_comps; i ++)
   {
-    sprintf(filename, "%s%d.pgm", basename, i);
+    sprintf(filename, "%s%d.pgm", base, i);
     out[i] = fopen(filename, "wb");
 
     fprintf(out[i], "P5\n%d %d 255\n", width, height);
   }
 
-  sprintf(filename, "%s.ppm", basename);
+  sprintf(filename, "%s.ppm", base);
   comp = fopen(filename, "wb");
 
   fprintf(comp, "P6\n%d %d 255\n", width, height);
@@ -260,7 +260,7 @@ test_gray(int        num_comps,		/* I - Number of components */
 
 void
 test_rgb(int        num_comps,		/* I - Number of components */
-	 const char *basename)		/* I - Base filename of output */
+	 const char *base)		/* I - Base filename of output */
 {
   int			i;		/* Looping var */
   char			filename[255];	/* Output filename */
@@ -325,13 +325,13 @@ test_rgb(int        num_comps,		/* I - Number of components */
 
   for (i = 0; i < num_comps; i ++)
   {
-    sprintf(filename, "%s%d.pgm", basename, i);
+    sprintf(filename, "%s%d.pgm", base, i);
     out[i] = fopen(filename, "wb");
 
     fprintf(out[i], "P5\n%d %d 255\n", width, height);
   }
 
-  sprintf(filename, "%s.ppm", basename);
+  sprintf(filename, "%s.ppm", base);
   comp = fopen(filename, "wb");
 
   fprintf(comp, "P6\n%d %d 255\n", width, height);
@@ -433,5 +433,5 @@ test_rgb(int        num_comps,		/* I - Number of components */
 
 
 /*
- * End of "$Id: testcmyk.c 7315 2008-02-15 22:26:48Z mike $".
+ * End of "$Id: testcmyk.c 9982 2011-09-09 17:32:52Z mike $".
  */

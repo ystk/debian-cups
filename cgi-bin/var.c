@@ -1,9 +1,9 @@
 /*
- * "$Id: var.c 9152 2010-06-16 00:39:16Z mike $"
+ * "$Id: var.c 10367 2012-03-21 04:09:04Z mike $"
  *
  *   CGI form variable and array functions for CUPS.
  *
- *   Copyright 2007-2010 by Apple Inc.
+ *   Copyright 2007-2011 by Apple Inc.
  *   Copyright 1997-2005 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -48,9 +48,8 @@
 
 /*#define DEBUG*/
 #include "cgi-private.h"
-#include <errno.h>
 #include <cups/http.h>
-#include <cups/md5.h>
+#include <cups/md5-private.h>
 
 
 /*
@@ -167,6 +166,8 @@ cgiClearVariables(void)
   int		i, j;			/* Looping vars */
   _cgi_var_t	*v;			/* Current variable */
 
+
+  fputs("DEBUG: cgiClearVariables called.\n", stderr);
 
   for (v = form_vars, i = form_count; i > 0; v ++, i --)
   {
@@ -329,9 +330,9 @@ cgiInitialize(void)
   * Grab form data from the corresponding location...
   */
 
-  if (!strcasecmp(method, "GET"))
+  if (!_cups_strcasecmp(method, "GET"))
     return (cgi_initialize_get());
-  else if (!strcasecmp(method, "POST") && content_type)
+  else if (!_cups_strcasecmp(method, "POST") && content_type)
   {
     const char *boundary = strstr(content_type, "boundary=");
 
@@ -402,6 +403,8 @@ cgiSetArray(const char *name,		/* I - Name of variable */
   if (name == NULL || value == NULL || element < 0 || element > 100000)
     return;
 
+  fprintf(stderr, "DEBUG: cgiSetArray: %s[%d]=\"%s\"\n", name, element, value);
+
   if ((var = cgi_find_variable(name)) == NULL)
   {
     cgi_add_variable(name, element, value);
@@ -453,19 +456,19 @@ cgiSetCookie(const char *name,		/* I - Name */
 
   printf("Set-Cookie: %s=%s;", name, value);
   if (path)
-    printf("; path=%s", path);
+    printf(" path=%s;", path);
   if (domain)
-    printf("; domain=%s", domain);
+    printf(" domain=%s;", domain);
   if (expires)
   {
     char	date[256];		/* Date string */
 
-    printf("; expires=%s", httpGetDateString2(expires, date, sizeof(date)));
+    printf(" expires=%s;", httpGetDateString2(expires, date, sizeof(date)));
   }
   if (secure)
-    puts("; secure;");
+    puts(" secure;");
   else
-    puts(";");
+    putchar('\n');
 }
 
 
@@ -532,6 +535,8 @@ cgiSetVariable(const char *name,	/* I - Name of variable */
 
   if (name == NULL || value == NULL)
     return;
+
+  fprintf(stderr, "cgiSetVariable: %s=\"%s\"\n", name, value);
 
   if ((var = cgi_find_variable(name)) == NULL)
   {
@@ -608,7 +613,7 @@ cgi_compare_variables(
     const _cgi_var_t *v1,		/* I - First variable */
     const _cgi_var_t *v2)		/* I - Second variable */
 {
-  return (strcasecmp(v1->name, v2->name));
+  return (_cups_strcasecmp(v1->name, v2->name));
 }
 
 
@@ -825,7 +830,7 @@ cgi_initialize_multipart(
        /*
         * Copy file data to the temp file...
 	*/
-	
+
         ptr = line;
 
 	while ((ch = getchar()) != EOF)
@@ -929,7 +934,7 @@ cgi_initialize_multipart(
       filename[0] = '\0';
       mimetype[0] = '\0';
     }
-    else if (!strncasecmp(line, "Content-Disposition:", 20))
+    else if (!_cups_strncasecmp(line, "Content-Disposition:", 20))
     {
       if ((ptr = strstr(line + 20, " name=\"")) != NULL)
       {
@@ -947,7 +952,7 @@ cgi_initialize_multipart(
 	  *ptr = '\0';
       }
     }
-    else if (!strncasecmp(line, "Content-Type:", 13))
+    else if (!_cups_strncasecmp(line, "Content-Type:", 13))
     {
       for (ptr = line + 13; isspace(*ptr & 255); ptr ++);
 
@@ -1235,7 +1240,7 @@ cgi_set_sid(void)
   _cupsMD5Init(&md5);
   _cupsMD5Append(&md5, (unsigned char *)buffer, (int)strlen(buffer));
   _cupsMD5Finish(&md5, sum);
-  
+
   cgiSetCookie(CUPS_SID, httpMD5String(sum, sid), "/", NULL, 0, 0);
 
   return (cupsGetOption(CUPS_SID, num_cookies, cookies));
@@ -1302,5 +1307,5 @@ cgi_unlink_file(void)
 
 
 /*
- * End of "$Id: var.c 9152 2010-06-16 00:39:16Z mike $".
+ * End of "$Id: var.c 10367 2012-03-21 04:09:04Z mike $".
  */

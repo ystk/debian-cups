@@ -6,12 +6,13 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: PACKAGE VERSION\n"
-"Report-Msgid-Bugs-To: Source: cups@packages.debian.org\n"
-"POT-Creation-Date: 2007-12-16 15:35+0900\n"
+"Project-Id-Version: cups\n"
+"Report-Msgid-Bugs-To: cups@packages.debian.org\n"
+"POT-Creation-Date: 2012-09-18 12:37+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=CHARSET\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -73,25 +74,13 @@ msgstr ""
 #. Type: multiselect
 #. Choices
 #: ../cups.templates:3001
+msgid "ipp14"
+msgstr ""
+
+#. Type: multiselect
+#. Choices
+#: ../cups.templates:3001
 msgid "lpd"
-msgstr ""
-
-#. Type: multiselect
-#. Choices
-#: ../cups.templates:3001
-msgid "parallel"
-msgstr ""
-
-#. Type: multiselect
-#. Choices
-#: ../cups.templates:3001
-msgid "scsi"
-msgstr ""
-
-#. Type: multiselect
-#. Choices
-#: ../cups.templates:3001
-msgid "serial"
 msgstr ""
 
 #. Type: multiselect

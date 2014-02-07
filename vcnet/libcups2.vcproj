@@ -152,7 +152,7 @@
 				AdditionalDependencies="ws2_32.lib advapi32.lib"
 				OutputFile="$(OutDir)\libcups2.dll"
 				LinkIncremental="2"
-				ModuleDefinitionFile="..\vc2005\libcups2.def"
+				ModuleDefinitionFile="..\cups\libcups2.def"
 				GenerateDebugInformation="true"
 				ProgramDatabaseFile="$(PlatformName)\$(ConfigurationName)\libcups2.pdb"
 				SubSystem="2"
@@ -260,7 +260,7 @@
 			/>
 			<Tool
 				Name="VCPostBuildEventTool"
-				CommandLine="if not &quot;%RC_XBS%&quot; == &quot;YES&quot; goto END&#x0D;&#x0A;if not exist &quot;$(DSTROOT)\Program Files\Bonjour\$(PlatformName)&quot;   mkdir &quot;$(DSTROOT)\Program Files\Bonjour\$(PlatformName)&quot;&#x0D;&#x0A;xcopy /I/Y &quot;$(TargetPath)&quot;                                                                  &quot;$(DSTROOT)\Program Files\Bonjour\$(PlatformName)&quot;&#x0D;&#x0A;:END&#x0D;&#x0A;"
+				CommandLine=""
 			/>
 		</Configuration>
 		<Configuration
@@ -312,7 +312,7 @@
 				AdditionalDependencies="ws2_32.lib advapi32.lib"
 				OutputFile="$(OutDir)\libcups2.dll"
 				LinkIncremental="1"
-				ModuleDefinitionFile="..\vc2005\libcups2.def"
+				ModuleDefinitionFile="..\cups\libcups2.def"
 				GenerateDebugInformation="true"
 				ProgramDatabaseFile="libcups2.pdb"
 				SubSystem="2"
@@ -1210,6 +1210,10 @@
 				</FileConfiguration>
 			</File>
 			<File
+				RelativePath="..\cups\ppd-cache.c"
+				>
+			</File>
+			<File
 				RelativePath="..\cups\ppd.c"
 				>
 				<FileConfiguration
@@ -1246,15 +1250,7 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\cups\pwg-file.c"
-				>
-			</File>
-			<File
 				RelativePath="..\cups\pwg-media.c"
-				>
-			</File>
-			<File
-				RelativePath="..\cups\pwg-ppd.c"
 				>
 			</File>
 			<File
@@ -1300,6 +1296,10 @@
 						PreprocessorDefinitions="WIN32"
 					/>
 				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\cups\sspi.c"
+				>
 			</File>
 			<File
 				RelativePath="..\cups\string.c"
@@ -1372,6 +1372,10 @@
 						PreprocessorDefinitions="WIN32"
 					/>
 				</FileConfiguration>
+			</File>
+			<File
+				RelativePath="..\cups\thread.c"
+				>
 			</File>
 			<File
 				RelativePath="..\cups\transcode.c"
@@ -1500,6 +1504,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\config.h"
+				>
+			</File>
+			<File
 				RelativePath="..\cups\cups.h"
 				>
 			</File>
@@ -1509,6 +1517,10 @@
 			</File>
 			<File
 				RelativePath="..\cups\dir.h"
+				>
+			</File>
+			<File
+				RelativePath="..\cups\file-private.h"
 				>
 			</File>
 			<File
@@ -1556,6 +1568,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\cups\ppd-private.h"
+				>
+			</File>
+			<File
 				RelativePath="..\cups\ppd.h"
 				>
 			</File>
@@ -1564,7 +1580,15 @@
 				>
 			</File>
 			<File
-				RelativePath="..\cups\string.h"
+				RelativePath="..\cups\sspi-private.h"
+				>
+			</File>
+			<File
+				RelativePath="..\cups\string-private.h"
+				>
+			</File>
+			<File
+				RelativePath="..\cups\thread-private.h"
 				>
 			</File>
 			<File

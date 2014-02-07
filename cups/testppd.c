@@ -1,9 +1,9 @@
 /*
- * "$Id: testppd.c 9127 2010-04-28 23:43:14Z mike $"
+ * "$Id: testppd.c 9793 2011-05-20 03:49:49Z mike $"
  *
- *   PPD test program for the Common UNIX Printing System (CUPS).
+ *   PPD test program for CUPS.
  *
- *   Copyright 2007-2010 by Apple Inc.
+ *   Copyright 2007-2011 by Apple Inc.
  *   Copyright 1997-2006 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -23,12 +23,8 @@
  * Include necessary headers...
  */
 
-#include <cups/cups.h>
-#include <cups/string.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include "cups-private.h"
 #include <sys/stat.h>
-#include <errno.h>
 #ifdef WIN32
 #  include <io.h>
 #else
@@ -305,9 +301,9 @@ main(int  argc,				/* I - Number of command-line arguments */
     num_options = cupsGetConflicts(ppd, "InputSlot", "Envelope", &options);
     if (num_options != 2 ||
         (val = cupsGetOption("PageRegion", num_options, options)) == NULL ||
-	strcasecmp(val, "Letter") ||
+	_cups_strcasecmp(val, "Letter") ||
 	(val = cupsGetOption("PageSize", num_options, options)) == NULL ||
-	strcasecmp(val, "Letter"))
+	_cups_strcasecmp(val, "Letter"))
     {
       printf("FAIL (%d options:", num_options);
       for (i = 0; i < num_options; i ++)
@@ -356,8 +352,8 @@ main(int  argc,				/* I - Number of command-line arguments */
     num_options = 0;
     options     = NULL;
     if (cupsResolveConflicts(ppd, NULL, NULL, &num_options, &options) &&
-        num_options == 1 && !strcasecmp(options[0].name, "InputSlot") &&
-	!strcasecmp(options[0].value, "Tray"))
+        num_options == 1 && !_cups_strcasecmp(options[0].name, "InputSlot") &&
+	!_cups_strcasecmp(options[0].value, "Tray"))
       puts("PASS (Resolved by changing InputSlot)");
     else if (num_options > 0)
     {
@@ -438,6 +434,21 @@ main(int  argc,				/* I - Number of command-line arguments */
 
     size = ppdPageSize(ppd, NULL);
     if (!size || strcmp(size->name, "Letter"))
+    {
+      printf("FAIL (%s)\n", size ? size->name : "unknown");
+      status ++;
+    }
+    else
+      puts("PASS");
+
+    fputs("cupsMarkOptions(media=oe_letter-fullbleed_8.5x11in): ", stdout);
+    num_options = cupsAddOption("media", "oe_letter-fullbleed_8.5x11in", 0,
+                                &options);
+    cupsMarkOptions(ppd, num_options, options);
+    cupsFreeOptions(num_options, options);
+
+    size = ppdPageSize(ppd, NULL);
+    if (!size || strcmp(size->name, "Letter.Fullbleed"))
     {
       printf("FAIL (%s)\n", size ? size->name : "unknown");
       status ++;
@@ -679,8 +690,8 @@ main(int  argc,				/* I - Number of command-line arguments */
     num_options = 0;
     options     = NULL;
     if (cupsResolveConflicts(ppd, NULL, NULL, &num_options, &options) &&
-        num_options == 1 && !strcasecmp(options->name, "Quality") &&
-	!strcasecmp(options->value, "Normal"))
+        num_options == 1 && !_cups_strcasecmp(options->name, "Quality") &&
+	!_cups_strcasecmp(options->value, "Normal"))
       puts("PASS");
     else if (num_options > 0)
     {
@@ -714,7 +725,7 @@ main(int  argc,				/* I - Number of command-line arguments */
     }
     else
       puts("FAIL (No conflicts!)");
-    
+
     fputs("ppdInstallableConflict(): ", stdout);
     if (ppdInstallableConflict(ppd, "Duplex", "DuplexNoTumble") &&
         !ppdInstallableConflict(ppd, "Duplex", "None"))
@@ -830,10 +841,23 @@ main(int  argc,				/* I - Number of command-line arguments */
 
     if (!strncmp(argv[1], "-d", 2))
     {
-      filename = cupsGetPPD(argv[1] + 2);
+      const char *printer;		/* Printer name */
+
+      if (argv[1][2])
+	printer = argv[1] + 2;
+      else if (argv[2])
+	printer = argv[2];
+      else
+      {
+        puts("Usage: ./testppd -d printer");
+	return (1);
+      }
+
+      filename = cupsGetPPD(printer);
+
       if (!filename)
       {
-        printf("%s: %s\n", argv[1], cupsLastErrorString());
+        printf("%s: %s\n", printer, cupsLastErrorString());
         return (1);
       }
     }
@@ -1001,6 +1025,11 @@ main(int  argc,				/* I - Number of command-line arguments */
 	}
       }
 
+      puts("\nSizes:");
+      for (i = ppd->num_sizes, size = ppd->sizes; i > 0; i --, size ++)
+        printf("    %s = %gx%g, [%g %g %g %g]\n", size->name, size->width,
+	       size->length, size->left, size->bottom, size->right, size->top);
+
       puts("\nConstraints:");
 
       for (i = ppd->num_consts, c = ppd->consts; i > 0; i --, c ++)
@@ -1049,5 +1078,5 @@ main(int  argc,				/* I - Number of command-line arguments */
 
 
 /*
- * End of "$Id: testppd.c 9127 2010-04-28 23:43:14Z mike $".
+ * End of "$Id: testppd.c 9793 2011-05-20 03:49:49Z mike $".
  */

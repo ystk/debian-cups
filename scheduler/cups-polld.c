@@ -1,9 +1,9 @@
 /*
- * "$Id: cups-polld.c 7198 2008-01-08 00:12:17Z mike $"
+ * "$Id: cups-polld.c 10321 2012-03-02 18:26:30Z mike $"
  *
- *   Polling daemon for the Common UNIX Printing System (CUPS).
+ *   Polling daemon for CUPS.
  *
- *   Copyright 2007 by Apple Inc.
+ *   Copyright 2007-2012 by Apple Inc.
  *   Copyright 1997-2006 by Easy Software Products, all rights reserved.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -25,12 +25,7 @@
  * Include necessary headers...
  */
 
-#include <cups/http-private.h>
-#include <cups/cups.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <cups/language.h>
-#include <cups/string.h>
+#include <cups/cups-private.h>
 #include <signal.h>
 
 
@@ -158,9 +153,8 @@ main(int  argc,				/* I - Number of command-line args */
       if ((http = httpConnectEncrypt(argv[1], atoi(argv[2]),
                                      cupsEncryption())) == NULL)
       {
-	fprintf(stderr, "ERROR: %s Unable to connect to %s on port %s: %s\n",
-        	prefix, argv[1], argv[2],
-		h_errno ? hstrerror(h_errno) : strerror(errno));
+	fprintf(stderr, "ERROR: %s Unable to connect to %s on port %s.\n",
+        	prefix, argv[1], argv[2]);
       }
     }
 
@@ -297,6 +291,7 @@ poll_server(http_t      *http,		/* I - HTTP connection */
     fprintf(stderr, "ERROR: %s CUPS-Get-Printers failed: %s\n", prefix,
             cupsLastErrorString());
     ippDelete(response);
+    restart_polling = 1;
     return (-1);
   }
 
@@ -315,7 +310,7 @@ poll_server(http_t      *http,		/* I - HTTP connection */
     fprintf(stderr, "DEBUG: %s Found %d printers.\n", prefix, max_count);
 
     count     = 0;
-    max_count = max_count / interval + 1;
+    max_count = 2 * max_count / interval + 1;
 
    /*
     * Loop through the printers or classes returned in the list...
@@ -471,5 +466,5 @@ sighup_handler(int sig)			/* I - Signal number */
 
 
 /*
- * End of "$Id: cups-polld.c 7198 2008-01-08 00:12:17Z mike $".
+ * End of "$Id: cups-polld.c 10321 2012-03-02 18:26:30Z mike $".
  */

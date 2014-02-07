@@ -1,9 +1,9 @@
 /*
- * "$Id: config.h 9120 2010-04-23 18:56:34Z mike $"
+ * "$Id: config.h 9793 2011-05-20 03:49:49Z mike $"
  *
- *   Configuration file for CUPS.
+ *   Configuration file for CUPS on Windows.
  *
- *   Copyright 2007-2010 by Apple Inc.
+ *   Copyright 2007-2011 by Apple Inc.
  *   Copyright 1997-2007 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -24,8 +24,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <ctype.h>
 #include <io.h>
+#include <direct.h>
 
 
 /*
@@ -42,8 +42,10 @@
 #define close		_close
 #define fileno		_fileno
 #define lseek		_lseek
+#define mkdir(d,p)	_mkdir(d)
 #define open		_open
 #define read	        _read
+#define rmdir		_rmdir
 #define snprintf 	_snprintf
 #define strdup		_strdup
 #define unlink		_unlink
@@ -84,8 +86,8 @@
  * Version of software...
  */
 
-#define CUPS_SVERSION "CUPS v1.4.4"
-#define CUPS_MINIMAL "CUPS/1.4.4"
+#define CUPS_SVERSION "CUPS v1.5.0"
+#define CUPS_MINIMAL "CUPS/1.5.0"
 
 
 /*
@@ -275,8 +277,6 @@
  */
 
 #define HAVE_STRDUP 1
-#define HAVE_STRCASECMP 1
-#define HAVE_STRNCASECMP 1
 /* #undef HAVE_STRLCAT */
 /* #undef HAVE_STRLCPY */
 
@@ -286,6 +286,13 @@
  */
 
 /* #undef HAVE_GETEUID */
+
+
+/*
+ * Do we have the setpgid() function?
+ */
+
+/* #undef HAVE_SETPGID */
 
 
 /*
@@ -348,7 +355,8 @@
 /* #undef HAVE_CDSASSL */
 /* #undef HAVE_GNUTLS */
 /* #undef HAVE_LIBSSL */
-/* #undef HAVE_SSL */
+#define HAVE_SSPISSL
+#define HAVE_SSL
 
 
 /*
@@ -367,6 +375,27 @@
  */
 
 /* #undef HAVE_SECIDENTITYSEARCHCREATEWITHPOLICY */
+
+
+/*
+ * Do we have the SecPolicyCreateSSL function?
+ */
+
+/* #undef HAVE_SECPOLICYCREATESSL */
+
+
+/*
+ * Do we have the SecPolicyCreateSSL function?
+ */
+
+/* #undef HAVE_SECPOLICYCREATESSL */
+
+
+/*
+ * Do we have the cssmErrorString function?
+ */
+
+/* #undef HAVE_CSSMERRORSTRING */
 
 
 /*
@@ -399,7 +428,14 @@
  * Do we have DNS Service Discovery (aka Bonjour)?
  */
 
-/* #undef HAVE_DNSSD */
+#define HAVE_DNSSD 1
+
+
+/*
+ * Does the "stat" structure contain the "st_gen" member?
+ */
+
+/* #undef HAVE_ST_GEN */
 
 
 /*
@@ -549,6 +585,13 @@
 
 
 /*
+ * Do we have ApplicationServices public headers?
+ */
+
+/* #undef HAVE_APPLICATIONSERVICES_H */
+
+
+/*
  * Do we have the SCDynamicStoreCopyComputerName function?
  */
 
@@ -556,7 +599,7 @@
 
 
 /*
- * Do we have MacOSX 10.4's mbr_XXX functions()?
+ * Do we have Mac OS X 10.4's mbr_XXX functions?
  */
 
 /* #undef HAVE_MEMBERSHIP_H */
@@ -565,11 +608,18 @@
 
 
 /*
- * Do we have Darwin's notify_post() header and function?
+ * Do we have Darwin's notify_post header and function?
  */
 
 /* #undef HAVE_NOTIFY_H */
 /* #undef HAVE_NOTIFY_POST */
+
+
+/*
+ * Do we have Darwin's IOKit private headers?
+ */
+
+/* #undef HAVE_IOKIT_PWR_MGT_IOPMLIBPRIVATE_H */
 
 
 /*
@@ -581,27 +631,19 @@
 
 
 /*
- * Do we have the AppleTalk/at_proto.h header?
- */
-
-/* #undef HAVE_APPLETALK_AT_PROTO_H */
-
-
-/*
  * Do we have the GSSAPI support library (for Kerberos support)?
  */
 
-/* #undef HAVE_GSSAPI */
-/* #undef HAVE_GSSAPI_H */
-/* #undef HAVE_GSSAPI_GSSAPI_H */
-/* #undef HAVE_GSSAPI_GSSAPI_GENERIC_H */
-/* #undef HAVE_GSSAPI_GSSAPI_KRB5_H */
-/* #undef HAVE_GSSKRB5_REGISTER_ACCEPTOR_IDENTITY */
+/* #undef HAVE_GSS_ACQUIRE_CRED_EX_F */
 /* #undef HAVE_GSS_C_NT_HOSTBASED_SERVICE */
-/* #undef HAVE_KRB5_CC_NEW_UNIQUE */
-/* #undef HAVE_KRB5_IPC_CLIENT_SET_TARGET_UID */
+/* #undef HAVE_GSS_GSSAPI_H */
+/* #undef HAVE_GSS_GSSAPI_SPI_H */
+/* #undef HAVE_GSSAPI */
+/* #undef HAVE_GSSAPI_GENERIC_H */
+/* #undef HAVE_GSSAPI_GSSAPI_H */
+/* #undef HAVE_GSSAPI_H */
+/* #undef HAVE_GSSAPI_KRB5_H */
 /* #undef HAVE_KRB5_H */
-/* #undef HAVE_HEIMDAL */
 
 
 /*
@@ -699,8 +741,48 @@
 /* #undef HAVE_TCPD_H */
 
 
+/*
+ * Do we have <iconv.h>?
+ */
+
+/* #undef HAVE_ICONV_H */
+
+
+/*
+ * Do we have statfs or statvfs and one of the corresponding headers?
+ */
+
+/* #undef HAVE_STATFS */
+/* #undef HAVE_STATVFS */
+/* #undef HAVE_SYS_MOUNT_H */
+/* #undef HAVE_SYS_STATFS_H */
+/* #undef HAVE_SYS_STATVFS_H */
+/* #undef HAVE_SYS_VFS_H */
+
+
+/*
+ * Location of Mac OS X localization bundle, if any.
+ */
+
+/* #undef CUPS_BUNDLEDIR */
+
+
+/*
+ * Do we have the ColorSyncRegisterDevice function?
+ */
+
+/* #undef HAVE_COLORSYNCREGISTERDEVICE */
+
+
+/*
+ * Do we have XPC?
+ */
+
+/* #undef HAVE_XPC */
+
+
 #endif /* !_CUPS_CONFIG_H_ */
 
 /*
- * End of "$Id: config.h 9120 2010-04-23 18:56:34Z mike $".
+ * End of "$Id: config.h 9793 2011-05-20 03:49:49Z mike $".
  */

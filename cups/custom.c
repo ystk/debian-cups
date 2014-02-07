@@ -1,9 +1,9 @@
 /*
- * "$Id: custom.c 8179 2008-12-10 05:03:11Z mike $"
+ * "$Id: custom.c 9793 2011-05-20 03:49:49Z mike $"
  *
- *   PPD custom option routines for the Common UNIX Printing System (CUPS).
+ *   PPD custom option routines for CUPS.
  *
- *   Copyright 2007 by Apple Inc.
+ *   Copyright 2007-2011 by Apple Inc.
  *   Copyright 1997-2006 by Easy Software Products, all rights reserved.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -35,8 +35,7 @@
  * Include necessary headers.
  */
 
-#include "globals.h"
-#include "debug.h"
+#include "cups-private.h"
 
 
 /*
@@ -70,14 +69,19 @@ ppd_cparam_t *				/* O - Custom parameter or NULL */
 ppdFindCustomParam(ppd_coption_t *opt,	/* I - Custom option */
                    const char    *name)	/* I - Parameter name */
 {
-  ppd_cparam_t	key;			/* Custom parameter search key */
+  ppd_cparam_t	*param;			/* Current custom parameter */
 
 
   if (!opt)
     return (NULL);
 
-  strlcpy(key.name, name, sizeof(key.name));
-  return ((ppd_cparam_t *)cupsArrayFind(opt->params, &key));
+  for (param = (ppd_cparam_t *)cupsArrayFirst(opt->params);
+       param;
+       param = (ppd_cparam_t *)cupsArrayNext(opt->params))
+    if (!_cups_strcasecmp(param->name, name))
+      break;
+
+  return (param);
 }
 
 
@@ -114,5 +118,5 @@ ppdNextCustomParam(ppd_coption_t *opt)	/* I - Custom option */
 
 
 /*
- * End of "$Id: custom.c 8179 2008-12-10 05:03:11Z mike $".
+ * End of "$Id: custom.c 9793 2011-05-20 03:49:49Z mike $".
  */
