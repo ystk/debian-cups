@@ -1,9 +1,9 @@
 #
-# "$Id: Makefile 8627 2009-05-13 21:39:17Z mike $"
+# "$Id: Makefile 9177 2010-06-22 21:21:37Z mike $"
 #
-#   Man page makefile for the Common UNIX Printing System (CUPS).
+#   Man page makefile for CUPS.
 #
-#   Copyright 2007-2008 by Apple Inc.
+#   Copyright 2007-2010 by Apple Inc.
 #   Copyright 1993-2006 by Easy Software Products.
 #
 #   These coded instructions, statements, and computer programs are the
@@ -24,6 +24,7 @@ MAN1	=	cancel.$(MAN1EXT) \
 		cups-config.$(MAN1EXT) \
 		cupstestdsc.$(MAN1EXT) \
 		cupstestppd.$(MAN1EXT) \
+		ipptool.$(MAN1EXT) \
 		lp.$(MAN1EXT) \
 		lpoptions.$(MAN1EXT) \
 		lppasswd.$(MAN1EXT) \
@@ -40,6 +41,7 @@ MAN5	=	classes.conf.$(MAN5EXT) \
 		client.conf.$(MAN5EXT) \
 		cups-snmp.conf.$(MAN5EXT) \
 		cupsd.conf.$(MAN5EXT) \
+		ipptoolfile.$(MAN5EXT) \
 		mailto.conf.$(MAN5EXT) \
 		mime.convs.$(MAN5EXT) \
 		mime.types.$(MAN5EXT) \
@@ -47,7 +49,6 @@ MAN5	=	classes.conf.$(MAN5EXT) \
 		printers.conf.$(MAN5EXT) \
 		subscriptions.conf.$(MAN5EXT)
 MAN7	=	backend.$(MAN7EXT) \
-		drv.$(MAN7EXT) \
 		filter.$(MAN7EXT) \
 		notifier.$(MAN7EXT)
 MAN8	=	cupsaccept.$(MAN8EXT) \
@@ -231,5 +232,5 @@ mantohtml:	mantohtml.o
 
 
 #
-# End of "$Id: Makefile 8627 2009-05-13 21:39:17Z mike $".
+# End of "$Id: Makefile 9177 2010-06-22 21:21:37Z mike $".
 #

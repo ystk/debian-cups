@@ -1,9 +1,9 @@
 /*
- * "$Id: cert.c 9120 2010-04-23 18:56:34Z mike $"
+ * "$Id: cert.c 10262 2012-02-12 05:48:09Z mike $"
  *
- *   Authentication certificate routines for CUPS.
+ *   Authentication certificate routines for the CUPS scheduler.
  *
- *   Copyright 2007-2010 by Apple Inc.
+ *   Copyright 2007-2011 by Apple Inc.
  *   Copyright 1997-2006 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -121,6 +121,8 @@ cupsdAddCert(int        pid,		/* I - Process ID */
       * groups can access it...
       */
 
+      int	j;			/* Looping var */
+
 #  ifdef HAVE_MBR_UID_TO_UUID
      /*
       * On MacOS X, ACLs use UUIDs instead of GIDs...
@@ -134,6 +136,13 @@ cupsdAddCert(int        pid,		/* I - Process ID */
         * Add each group ID to the ACL...
 	*/
 
+        for (j = 0; j < i; j ++)
+	  if (SystemGroupIDs[j] == SystemGroupIDs[i])
+            break;
+
+        if (j < i)
+          continue;			/* Skip duplicate groups */
+
         acl_create_entry(&acl, &entry);
 	acl_get_permset(entry, &permset);
 	acl_add_perm(permset, ACL_READ_DATA);
@@ -142,6 +151,7 @@ cupsdAddCert(int        pid,		/* I - Process ID */
 	acl_set_qualifier(entry, &group);
 	acl_set_permset(entry, permset);
       }
+
 #  else
      /*
       * POSIX ACLs need permissions for owner, group, other, and mask
@@ -184,6 +194,13 @@ cupsdAddCert(int        pid,		/* I - Process ID */
         * Add each group ID to the ACL...
 	*/
 
+        for (j = 0; j < i; j ++)
+	  if (SystemGroupIDs[j] == SystemGroupIDs[i])
+            break;
+
+        if (j < i)
+          continue;			/* Skip duplicate groups */
+
         acl_create_entry(&acl, &entry);
 	acl_get_permset(entry, &permset);
 	acl_add_perm(permset, ACL_READ);
@@ -196,7 +213,6 @@ cupsdAddCert(int        pid,		/* I - Process ID */
       {
         char *text, *textptr;		/* Temporary string */
 
-
         cupsdLogMessage(CUPSD_LOG_ERROR, "ACL did not validate: %s",
 	                strerror(errno));
         text = acl_to_text(acl, NULL);
@@ -206,7 +222,7 @@ cupsdAddCert(int        pid,		/* I - Process ID */
 	  *textptr = ',';
 
 	cupsdLogMessage(CUPSD_LOG_ERROR, "ACL: %s", text);
-	free(text);
+	acl_free(text);
       }
 #  endif /* HAVE_MBR_UID_TO_UUID */
 
@@ -368,7 +384,7 @@ cupsdFindCert(const char *certificate)	/* I - Certificate */
   cupsdLogMessage(CUPSD_LOG_DEBUG2, "cupsdFindCert(certificate=%s)",
                   certificate);
   for (cert = Certs; cert != NULL; cert = cert->next)
-    if (!strcasecmp(certificate, cert->certificate))
+    if (!_cups_strcasecmp(certificate, cert->certificate))
     {
       cupsdLogMessage(CUPSD_LOG_DEBUG2, "cupsdFindCert: Returning %s...",
                       cert->username);
@@ -438,5 +454,5 @@ cupsdInitCerts(void)
 
 
 /*
- * End of "$Id: cert.c 9120 2010-04-23 18:56:34Z mike $".
+ * End of "$Id: cert.c 10262 2012-02-12 05:48:09Z mike $".
  */

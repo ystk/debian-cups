@@ -1,9 +1,9 @@
 /*
- * "$Id: phpcups.c 7624 2008-06-09 15:55:04Z mike $"
+ * "$Id: phpcups.c 10197 2012-01-27 16:34:04Z mike $"
  *
- *   Printing utilities for the Common UNIX Printing System (CUPS).
+ *   Printing utilities for CUPS.
  *
- *   Copyright 2007 by Apple Inc.
+ *   Copyright 2007-2012 by Apple Inc.
  *   Copyright 1997-2007 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -29,18 +29,18 @@
  * Include necessary headers...
  */
 
-#include <cups/string.h>
+#include <cups/string-private.h>
 #include "php.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "phpcups.h"
 
 
-/* 
+/*
  * PHP function list...
  */
 
-function_entry phpcups_functions[] =
+zend_function_entry phpcups_functions[] =
 {
   PHP_FE(cups_cancel_job, NULL)
   PHP_FE(cups_get_dests, NULL)
@@ -483,5 +483,5 @@ PHP_FUNCTION(cups_print_files)
 
 
 /*
- * End of "$Id: phpcups.c 7624 2008-06-09 15:55:04Z mike $".
+ * End of "$Id: phpcups.c 10197 2012-01-27 16:34:04Z mike $".
  */

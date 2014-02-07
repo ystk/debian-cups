@@ -1,9 +1,9 @@
 /*
- * "$Id: ipp.h 9120 2010-04-23 18:56:34Z mike $"
+ * "$Id: ipp.h 10108 2011-11-04 22:22:22Z mike $"
  *
  *   Internet Printing Protocol definitions for CUPS.
  *
- *   Copyright 2007-2010 by Apple Inc.
+ *   Copyright 2007-2011 by Apple Inc.
  *   Copyright 1997-2006 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -38,7 +38,7 @@ extern "C" {
  * IPP version string...
  */
 
-#  define IPP_VERSION		"\001\001"
+#  define IPP_VERSION		"\002\001"
 
 /*
  * IPP registered port number...
@@ -73,6 +73,7 @@ typedef enum ipp_tag_e			/**** Format tags for attributes ****/
   IPP_TAG_UNSUPPORTED_GROUP,		/* Unsupported attributes group */
   IPP_TAG_SUBSCRIPTION,			/* Subscription group */
   IPP_TAG_EVENT_NOTIFICATION,		/* Event group */
+  IPP_TAG_DOCUMENT = 0x09,		/* Document group */
   IPP_TAG_UNSUPPORTED_VALUE = 0x10,	/* Unsupported value */
   IPP_TAG_DEFAULT,			/* Default value */
   IPP_TAG_UNKNOWN,			/* Unknown value */
@@ -93,7 +94,8 @@ typedef enum ipp_tag_e			/**** Format tags for attributes ****/
   IPP_TAG_END_COLLECTION,		/* End of collection value */
   IPP_TAG_TEXT = 0x41,			/* Text value */
   IPP_TAG_NAME,				/* Name value */
-  IPP_TAG_KEYWORD = 0x44,		/* Keyword value */
+  IPP_TAG_RESERVED_STRING,		/* Reserved for future string value @private@ */
+  IPP_TAG_KEYWORD,			/* Keyword value */
   IPP_TAG_URI,				/* URI value */
   IPP_TAG_URISCHEME,			/* URI scheme value */
   IPP_TAG_CHARSET,			/* Character set value */
@@ -231,6 +233,16 @@ typedef enum ipp_op_e			/**** IPP operations ****/
   IPP_RESUME_JOB,			/* Resume the current job @private@ */
   IPP_PROMOTE_JOB,			/* Promote a job to print sooner @private@ */
   IPP_SCHEDULE_JOB_AFTER,		/* Schedule a job to print after another @private@ */
+  IPP_CANCEL_DOCUMENT = 0x0033,		/* Cancel-Document @private@ */
+  IPP_GET_DOCUMENT_ATTRIBUTES,		/* Get-Document-Attributes @private@ */
+  IPP_GET_DOCUMENTS,			/* Get-Documents @private@ */
+  IPP_DELETE_DOCUMENT,			/* Delete-Document @private@ */
+  IPP_SET_DOCUMENT_ATTRIBUTES,		/* Set-Document-Attributes @private@ */
+  IPP_CANCEL_JOBS,			/* Cancel-Jobs */
+  IPP_CANCEL_MY_JOBS,			/* Cancel-My-Jobs */
+  IPP_RESUBMIT_JOB,			/* Resubmit-Job */
+  IPP_CLOSE_JOB,			/* Close-Job */
+  IPP_IDENTIFY_PRINTER,			/* Identify-Printer (proposed IPP JPS3) */
   IPP_PRIVATE = 0x4000,			/* Reserved @private@ */
   CUPS_GET_DEFAULT,			/* Get the default printer */
   CUPS_GET_PRINTERS,			/* Get a list of printers and/or classes */
@@ -301,7 +313,13 @@ typedef enum ipp_status_e		/**** IPP status codes ****/
   IPP_PRINTER_BUSY,			/* server-error-busy */
   IPP_ERROR_JOB_CANCELED,		/* server-error-job-canceled */
   IPP_MULTIPLE_JOBS_NOT_SUPPORTED,	/* server-error-multiple-document-jobs-not-supported */
-  IPP_PRINTER_IS_DEACTIVATED		/* server-error-printer-is-deactivated */
+  IPP_PRINTER_IS_DEACTIVATED,		/* server-error-printer-is-deactivated */
+  IPP_TOO_MANY_JOBS,			/* server-error-too-many-jobs */
+  IPP_TOO_MANY_DOCUMENTS,		/* server-error-too-many-documents */
+
+  IPP_AUTHENTICATION_CANCELED = 0x1000,	/* Authentication canceled by user @since CUPS 1.5/Mac OS X 10.7@ */
+  IPP_PKI_ERROR,			/* Error negotiating a secure connection @since CUPS 1.5/Mac OS X 10.7@ */
+  IPP_UPGRADE_REQUIRED			/* TLS upgrade required */
 } ipp_status_t;
 #define IPP_ERROR_JOB_CANCELLED IPP_ERROR_JOB_CANCELED
 
@@ -405,8 +423,8 @@ struct ipp_s				/**** IPP Request/Response/Notification ****/
 /**** New in CUPS 1.2 ****/
   ipp_attribute_t *prev;		/* Previous attribute (for read) @since CUPS 1.2/Mac OS X 10.5@ */
 
-/**** New in CUPS 1.5 ****/
-  int		use;			/* Use count */
+/**** New in CUPS 1.4.4 ****/
+  int		use;			/* Use count @since CUPS 1.4.4/Mac OS X 10.6.?@ */
 };
 
 
@@ -500,5 +518,5 @@ extern ipp_tag_t	ippTagValue(const char *name) _CUPS_API_1_4;
 #endif /* !_CUPS_IPP_H_ */
 
 /*
- * End of "$Id: ipp.h 9120 2010-04-23 18:56:34Z mike $".
+ * End of "$Id: ipp.h 10108 2011-11-04 22:22:22Z mike $".
  */

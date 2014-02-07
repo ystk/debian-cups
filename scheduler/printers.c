@@ -1,9 +1,9 @@
 /*
- * "$Id: printers.c 9124 2010-04-23 20:53:38Z mike $"
+ * "$Id: printers.c 10295 2012-02-15 23:21:06Z mike $"
  *
- *   Printer routines for the Common UNIX Printing System (CUPS).
+ *   Printer routines for the CUPS scheduler.
  *
- *   Copyright 2007-2010 by Apple Inc.
+ *   Copyright 2007-2012 by Apple Inc.
  *   Copyright 1997-2007 by Easy Software Products, all rights reserved.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -15,14 +15,11 @@
  * Contents:
  *
  *   cupsdAddPrinter()          - Add a printer to the system.
- *   cupsdAddPrinterHistory()   - Add the current printer state to the history.
- *   cupsdAddPrinterUser()      - Add a user to the ACL.
  *   cupsdCreateCommonData()    - Create the common printer data.
  *   cupsdDeleteAllPrinters()   - Delete all printers from the system.
  *   cupsdDeletePrinter()       - Delete a printer from the system.
  *   cupsdFindDest()            - Find a destination in the list.
  *   cupsdFindPrinter()         - Find a printer in the list.
- *   cupsdFreePrinterUsers()    - Free allow/deny users.
  *   cupsdLoadAllPrinters()     - Load printers from the printers.conf file.
  *   cupsdRenamePrinter()       - Rename a printer.
  *   cupsdSaveAllPrinters()     - Save all printer definitions to the
@@ -45,10 +42,10 @@
  *   add_printer_filter()       - Add a MIME filter for a printer.
  *   add_printer_formats()      - Add document-format-supported values for a
  *                                printer.
- *   add_string_array()         - Add a string to an array of CUPS strings.
  *   compare_printers()         - Compare two printers.
  *   delete_printer_filters()   - Delete all MIME filters for a printer.
- *   delete_string_array()      - Delete an array of CUPS strings.
+ *   dirty_printer()            - Mark config and state files dirty for the
+ *                                specified printer.
  *   load_ppd()                 - Load a cached PPD file, updating the cache as
  *                                needed.
  *   new_media_col()            - Create a media-col collection value.
@@ -65,6 +62,23 @@
 
 #include "cupsd.h"
 #include <cups/dir.h>
+#ifdef HAVE_APPLICATIONSERVICES_H
+#  include <ApplicationServices/ApplicationServices.h>
+#endif /* HAVE_APPLICATIONSERVICES_H */
+#ifdef HAVE_SYS_MOUNT_H
+#  include <sys/mount.h>
+#endif /* HAVE_SYS_MOUNT_H */
+#ifdef HAVE_SYS_STATVFS_H
+#  include <sys/statvfs.h>
+#elif defined(HAVE_SYS_STATFS_H)
+#  include <sys/statfs.h>
+#endif /* HAVE_SYS_STATVFS_H */
+#ifdef HAVE_SYS_VFS_H
+#  include <sys/vfs.h>
+#endif /* HAVE_SYS_VFS_H */
+#ifdef __APPLE__
+#  include <asl.h>
+#endif /* __APPLE__ */
 
 
 /*
@@ -75,11 +89,11 @@ static void	add_printer_defaults(cupsd_printer_t *p);
 static void	add_printer_filter(cupsd_printer_t *p, mime_type_t *type,
 				   const char *filter);
 static void	add_printer_formats(cupsd_printer_t *p);
-static void	add_string_array(cups_array_t **a, const char *s);
 static int	compare_printers(void *first, void *second, void *data);
 static void	delete_printer_filters(cupsd_printer_t *p);
-static void	delete_string_array(cups_array_t **a);
+static void	dirty_printer(cupsd_printer_t *p);
 static void	load_ppd(cupsd_printer_t *p);
+static void	log_ipp_conformance(cupsd_printer_t *p, const char *reason);
 static ipp_t	*new_media_col(_pwg_size_t *size, const char *source,
 		               const char *type);
 #ifdef __sgi
@@ -97,6 +111,8 @@ cupsd_printer_t *			/* O - New printer */
 cupsdAddPrinter(const char *name)	/* I - Name of printer */
 {
   cupsd_printer_t	*p;		/* New printer */
+  char			uri[1024],	/* Printer URI */
+			uuid[64];	/* Printer UUID */
 
 
  /*
@@ -120,8 +136,11 @@ cupsdAddPrinter(const char *name)	/* I - Name of printer */
   cupsdSetString(&p->info, name);
   cupsdSetString(&p->hostname, ServerName);
 
-  cupsdSetStringf(&p->uri, "ipp://%s:%d/printers/%s", ServerName, RemotePort,
-                  name);
+  httpAssembleURIf(HTTP_URI_CODING_ALL, uri, sizeof(uri), "ipp", NULL,
+		   ServerName, RemotePort, "/printers/%s", name);
+  cupsdSetString(&p->uri, uri);
+  cupsdSetString(&p->uuid, _httpAssembleUUID(ServerName, RemotePort, name, 0,
+                                             uuid, sizeof(uuid)));
   cupsdSetDeviceURI(p, "file:///dev/null");
 
   p->state      = IPP_PRINTER_STOPPED;
@@ -137,9 +156,6 @@ cupsdAddPrinter(const char *name)	/* I - Name of printer */
   cupsdSetString(&p->op_policy, DefaultPolicy);
 
   p->op_policy_ptr = DefaultPolicyPtr;
-
-  if (MaxPrinterHistory)
-    p->history = calloc(MaxPrinterHistory, sizeof(ipp_t *));
 
  /*
   * Insert the printer in the printer list alphabetically...
@@ -164,103 +180,6 @@ cupsdAddPrinter(const char *name)	/* I - Name of printer */
 
 
 /*
- * 'cupsdAddPrinterHistory()' - Add the current printer state to the history.
- */
-
-void
-cupsdAddPrinterHistory(
-    cupsd_printer_t *p)			/* I - Printer */
-{
-  ipp_t	*history;			/* History collection */
-
-
- /*
-  * Stop early if we aren't keeping history data...
-  */
-
-  if (MaxPrinterHistory <= 0)
-    return;
-
- /*
-  * Retire old history data as needed...
-  */
-
-  p->sequence_number ++;
-
-  if (p->num_history >= MaxPrinterHistory)
-  {
-    p->num_history --;
-    ippDelete(p->history[0]);
-    memmove(p->history, p->history + 1, p->num_history * sizeof(ipp_t *));
-  }
-
- /*
-  * Create a collection containing the current printer-state, printer-up-time,
-  * printer-state-message, and printer-state-reasons attributes.
-  */
-
-  history = ippNew();
-  ippAddInteger(history, IPP_TAG_PRINTER, IPP_TAG_ENUM, "printer-state",
-                p->state);
-  ippAddBoolean(history, IPP_TAG_PRINTER, "printer-is-accepting-jobs",
-                p->accepting);
-  ippAddBoolean(history, IPP_TAG_PRINTER, "printer-is-shared", p->shared);
-  ippAddString(history, IPP_TAG_PRINTER, IPP_TAG_TEXT, "printer-state-message",
-               NULL, p->state_message);
-#ifdef __APPLE__
-  if (p->recoverable)
-    ippAddString(history, IPP_TAG_PRINTER, IPP_TAG_TEXT,
-                 "com.apple.print.recoverable-message", NULL, p->recoverable);
-#endif /* __APPLE__ */
-  if (p->num_reasons == 0)
-    ippAddString(history, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-                 "printer-state-reasons", NULL, "none");
-  else
-    ippAddStrings(history, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-                  "printer-state-reasons", p->num_reasons, NULL,
-		  (const char * const *)p->reasons);
-  ippAddInteger(history, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
-                "printer-state-change-time", p->state_time);
-  ippAddInteger(history, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
-                "printer-state-sequence-number", p->sequence_number);
-
-  p->history[p->num_history] = history;
-  p->num_history ++;
-}
-
-
-/*
- * 'cupsdAddPrinterUser()' - Add a user to the ACL.
- */
-
-void
-cupsdAddPrinterUser(
-    cupsd_printer_t *p,			/* I - Printer */
-    const char      *username)		/* I - User */
-{
-  const char	**temp;			/* Temporary array pointer */
-
-
-  if (!p || !username)
-    return;
-
-  if (p->num_users == 0)
-    temp = malloc(sizeof(char **));
-  else
-    temp = realloc(p->users, sizeof(char **) * (p->num_users + 1));
-
-  if (!temp)
-    return;
-
-  p->users = temp;
-  temp     += p->num_users;
-
-  if ((*temp = strdup(username)) != NULL)
-    p->num_users ++;
-}
-
-
-/*
  * 'cupsdCreateCommonData()' - Create the common printer data.
  */
 
@@ -275,6 +194,14 @@ cupsdCreateCommonData(void)
   char			filename[1024],	/* Filename */
 			*notifier;	/* Current notifier */
   cupsd_policy_t	*p;		/* Current policy */
+  int			k_supported;	/* Maximum file size supported */
+#ifdef HAVE_STATVFS
+  struct statvfs	spoolinfo;	/* FS info for spool directory */
+  double		spoolsize;	/* FS size */
+#elif defined(HAVE_STATFS)
+  struct statfs		spoolinfo;	/* FS info for spool directory */
+  double		spoolsize;	/* FS size */
+#endif /* HAVE_STATVFS */
   static const int nups[] =		/* number-up-supported values */
 		{ 1, 2, 4, 6, 9, 16 };
   static const int orients[4] =/* orientation-requested-supported values */
@@ -314,6 +241,7 @@ cupsdCreateCommonData(void)
 		  IPP_GET_PRINTER_ATTRIBUTES,
 		  IPP_HOLD_JOB,
 		  IPP_RELEASE_JOB,
+		  IPP_RESTART_JOB,
 		  IPP_PAUSE_PRINTER,
 		  IPP_RESUME_PRINTER,
 		  IPP_PURGE_JOBS,
@@ -331,6 +259,9 @@ cupsdCreateCommonData(void)
 		  IPP_DISABLE_PRINTER,
 		  IPP_HOLD_NEW_JOBS,
 		  IPP_RELEASE_HELD_NEW_JOBS,
+		  IPP_CANCEL_JOBS,
+		  IPP_CANCEL_MY_JOBS,
+		  IPP_CLOSE_JOB,
 		  CUPS_GET_DEFAULT,
 		  CUPS_GET_PRINTERS,
 		  CUPS_ADD_PRINTER,
@@ -420,6 +351,7 @@ cupsdCreateCommonData(void)
 		  "multiple-document-handling",
 		  "number-up",
 		  "output-bin",
+		  "output-mode",
 		  "orientation-requested",
 		  "page-ranges",
 		  "print-quality",
@@ -438,23 +370,76 @@ cupsdCreateCommonData(void)
 		  "multiple-document-handling",
 		  "number-up",
 		  "output-bin",
+		  "output-mode",
 		  "orientation-requested",
 		  "page-ranges",
 		  "print-quality",
 		  "printer-resolution",
 		  "sides"
 		};
+  static const char * const pdf_versions[] =
+		{			/* pdf-versions-supported */
+		  "adobe-1.2",
+		  "adobe-1.3",
+		  "adobe-1.4",
+		  "adobe-1.5",
+		  "adobe-1.6",
+		  "adobe-1.7",
+		  "iso-19005-1_2005",
+		  "iso-32000-1_2008",
+		  "pwg-5102.3"
+		};
   static const char * const printer_settable[] =
 		{			/* printer-settable-attributes-supported */
 		  "printer-info",
 		  "printer-location"
 	        };
+  static const char * const which_jobs[] =
+		{			/* which-jobs-supported values */
+		  "completed",
+		  "not-completed",
+		  "aborted",
+		  "all",
+		  "canceled",
+		  "pending",
+		  "pending-held",
+		  "processing",
+		  "processing-stopped"
+		};
 
 
   if (CommonData)
     ippDelete(CommonData);
 
   CommonData = ippNew();
+
+ /*
+  * Get the maximum spool size based on the size of the filesystem used for
+  * the RequestRoot directory.  If the host OS doesn't support the statfs call
+  * or the filesystem is larger than 2TiB, always report INT_MAX.
+  */
+
+#ifdef HAVE_STATVFS
+  if (statvfs(RequestRoot, &spoolinfo))
+    k_supported = INT_MAX;
+  else if ((spoolsize = (double)spoolinfo.f_frsize * spoolinfo.f_blocks / 1024) >
+               INT_MAX)
+    k_supported = INT_MAX;
+  else
+    k_supported = (int)spoolsize;
+
+#elif defined(HAVE_STATFS)
+  if (statfs(RequestRoot, &spoolinfo))
+    k_supported = INT_MAX;
+  else if ((spoolsize = (double)spoolinfo.f_bsize * spoolinfo.f_blocks / 1024) >
+               INT_MAX)
+    k_supported = INT_MAX;
+  else
+    k_supported = (int)spoolsize;
+
+#else
+  k_supported = INT_MAX;
+#endif /* HAVE_STATVFS */
 
  /*
   * This list of attributes is sorted to improve performance when the
@@ -507,6 +492,13 @@ cupsdCreateCommonData(void)
                 "job-hold-until-supported", sizeof(holds) / sizeof(holds[0]),
 		NULL, holds);
 
+  /* job-ids-supported */
+  ippAddBoolean(CommonData, IPP_TAG_PRINTER, "job-ids-supported", 1);
+
+  /* job-k-octets-supported */
+  ippAddRange(CommonData, IPP_TAG_PRINTER, "job-k-octets-supported", 0,
+              k_supported);
+
   /* job-priority-supported */
   ippAddInteger(CommonData, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
                 "job-priority-supported", 100);
@@ -554,6 +546,18 @@ cupsdCreateCommonData(void)
   else
     ippAddString(CommonData, IPP_TAG_PRINTER, IPP_TAG_NAME | IPP_TAG_COPY,
                  "job-sheets-supported", NULL, "none");
+
+  /* jpeg-k-octets-supported */
+  ippAddRange(CommonData, IPP_TAG_PRINTER, "jpeg-k-octets-supported", 0,
+              k_supported);
+
+  /* jpeg-x-dimension-supported */
+  ippAddRange(CommonData, IPP_TAG_PRINTER, "jpeg-x-dimension-supported", 0,
+              65535);
+
+  /* jpeg-y-dimension-supported */
+  ippAddRange(CommonData, IPP_TAG_PRINTER, "jpeg-y-dimension-supported", 1,
+              65535);
 
   /* media-col-supported */
   ippAddStrings(CommonData, IPP_TAG_PRINTER, IPP_TAG_KEYWORD | IPP_TAG_COPY,
@@ -649,9 +653,19 @@ cupsdCreateCommonData(void)
   /* page-ranges-supported */
   ippAddBoolean(CommonData, IPP_TAG_PRINTER, "page-ranges-supported", 1);
 
-  /* pdf-override-supported */
+  /* pdf-k-octets-supported */
+  ippAddRange(CommonData, IPP_TAG_PRINTER, "pdf-k-octets-supported", 0,
+              k_supported);
+
+  /* pdf-versions-supported */
+  ippAddStrings(CommonData, IPP_TAG_PRINTER, IPP_TAG_KEYWORD | IPP_TAG_COPY,
+                "pdf-versions-supported",
+                sizeof(pdf_versions) / sizeof(pdf_versions[0]), NULL,
+                pdf_versions);
+
+  /* pdl-override-supported */
   ippAddString(CommonData, IPP_TAG_PRINTER, IPP_TAG_KEYWORD | IPP_TAG_COPY,
-               "pdl-override-supported", NULL, "not-attempted");
+               "pdl-override-supported", NULL, "attempted");
 
   /* printer-op-policy-supported */
   attr = ippAddStrings(CommonData, IPP_TAG_PRINTER, IPP_TAG_NAME | IPP_TAG_COPY,
@@ -671,6 +685,11 @@ cupsdCreateCommonData(void)
   /* server-is-sharing-printers */
   ippAddBoolean(CommonData, IPP_TAG_PRINTER, "server-is-sharing-printers",
                 BrowseLocalProtocols != 0 && Browsing);
+
+  /* which-jobs-supported */
+  ippAddStrings(CommonData, IPP_TAG_PRINTER, IPP_TAG_KEYWORD | IPP_TAG_COPY,
+                "which-jobs-supported",
+                sizeof(which_jobs) / sizeof(which_jobs[0]), NULL, which_jobs);
 }
 
 
@@ -724,6 +743,8 @@ cupsdDeletePrinter(
   */
 
   cupsdSetPrinterState(p, IPP_PRINTER_STOPPED, update);
+
+  p->state = IPP_PRINTER_STOPPED;	/* Force for browsed printers */
 
   if (p->job)
     cupsdSetJobState(p->job, IPP_JOB_PENDING, CUPSD_JOB_FORCE,
@@ -831,14 +852,6 @@ cupsdDeletePrinter(
   if (p->printers != NULL)
     free(p->printers);
 
-  if (MaxPrinterHistory)
-  {
-    for (i = 0; i < p->num_history; i ++)
-      ippDelete(p->history[i]);
-
-    free(p->history);
-  }
-
   delete_printer_filters(p);
 
   for (i = 0; i < p->num_reasons; i ++)
@@ -850,10 +863,7 @@ cupsdDeletePrinter(
   mimeDeleteType(MimeDatabase, p->filetype);
   mimeDeleteType(MimeDatabase, p->prefiltertype);
 
-  delete_string_array(&(p->filters));
-  delete_string_array(&(p->pre_filters));
-
-  cupsdFreePrinterUsers(p);
+  cupsdFreeStrings(&(p->users));
   cupsdFreeQuotas(p);
 
   cupsdClearString(&p->uri);
@@ -874,7 +884,6 @@ cupsdDeletePrinter(
   cupsdClearString(&p->alert_description);
 
 #ifdef HAVE_DNSSD
-  cupsdClearString(&p->product);
   cupsdClearString(&p->pdl);
 #endif /* HAVE_DNSSD */
 
@@ -882,10 +891,6 @@ cupsdDeletePrinter(
 
   if (p->browse_attrs)
     free(p->browse_attrs);
-
-#ifdef __APPLE__
-  cupsdClearString(&p->recoverable);
-#endif /* __APPLE__ */
 
   cupsFreeOptions(p->num_options, p->options);
 
@@ -934,30 +939,6 @@ cupsdFindPrinter(const char *name)	/* I - Name of printer to find */
 
 
 /*
- * 'cupsdFreePrinterUsers()' - Free allow/deny users.
- */
-
-void
-cupsdFreePrinterUsers(
-    cupsd_printer_t *p)			/* I - Printer */
-{
-  int	i;				/* Looping var */
-
-
-  if (!p || !p->num_users)
-    return;
-
-  for (i = 0; i < p->num_users; i ++)
-    free((void *)p->users[i]);
-
-  free(p->users);
-
-  p->num_users = 0;
-  p->users     = NULL;
-}
-
-
-/*
  * 'cupsdLoadAllPrinters()' - Load printers from the printers.conf file.
  */
 
@@ -978,13 +959,8 @@ cupsdLoadAllPrinters(void)
   */
 
   snprintf(line, sizeof(line), "%s/printers.conf", ServerRoot);
-  if ((fp = cupsFileOpen(line, "r")) == NULL)
-  {
-    if (errno != ENOENT)
-      cupsdLogMessage(CUPSD_LOG_ERROR, "Unable to open %s - %s", line,
-		      strerror(errno));
+  if ((fp = cupsdOpenConfFile(line)) == NULL)
     return;
-  }
 
  /*
   * Read printer configurations until we hit EOF...
@@ -999,8 +975,8 @@ cupsdLoadAllPrinters(void)
     * Decode the directive...
     */
 
-    if (!strcasecmp(line, "<Printer") ||
-        !strcasecmp(line, "<DefaultPrinter"))
+    if (!_cups_strcasecmp(line, "<Printer") ||
+        !_cups_strcasecmp(line, "<DefaultPrinter"))
     {
      /*
       * <Printer name> or <DefaultPrinter name>
@@ -1022,14 +998,14 @@ cupsdLoadAllPrinters(void)
         * Set the default printer as needed...
 	*/
 
-        if (!strcasecmp(line, "<DefaultPrinter"))
+        if (!_cups_strcasecmp(line, "<DefaultPrinter"))
 	  DefaultPrinter = p;
       }
       else
         cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "</Printer>"))
+    else if (!_cups_strcasecmp(line, "</Printer>"))
     {
       if (p != NULL)
       {
@@ -1038,7 +1014,6 @@ cupsdLoadAllPrinters(void)
 	*/
 
         cupsdSetPrinterAttrs(p);
-	cupsdAddPrinterHistory(p);
 
         if (strncmp(p->device_uri, "file:", 5) &&
 	    p->state != IPP_PRINTER_STOPPED)
@@ -1076,29 +1051,37 @@ cupsdLoadAllPrinters(void)
       cupsdLogMessage(CUPSD_LOG_ERROR,
                       "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "AuthInfoRequired"))
+    else if (!_cups_strcasecmp(line, "UUID"))
+    {
+      if (value && !strncmp(value, "urn:uuid:", 9))
+        cupsdSetString(&(p->uuid), value);
+      else
+        cupsdLogMessage(CUPSD_LOG_ERROR,
+	                "Bad UUID on line %d of printers.conf.", linenum);
+    }
+    else if (!_cups_strcasecmp(line, "AuthInfoRequired"))
     {
       if (!cupsdSetAuthInfoRequired(p, value, NULL))
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 			"Bad AuthInfoRequired on line %d of printers.conf.",
 			linenum);
     }
-    else if (!strcasecmp(line, "Info"))
+    else if (!_cups_strcasecmp(line, "Info"))
     {
       if (value)
 	cupsdSetString(&p->info, value);
     }
-    else if (!strcasecmp(line, "MakeModel"))
+    else if (!_cups_strcasecmp(line, "MakeModel"))
     {
       if (value)
 	cupsdSetString(&p->make_model, value);
     }
-    else if (!strcasecmp(line, "Location"))
+    else if (!_cups_strcasecmp(line, "Location"))
     {
       if (value)
 	cupsdSetString(&p->location, value);
     }
-    else if (!strcasecmp(line, "DeviceURI"))
+    else if (!_cups_strcasecmp(line, "DeviceURI"))
     {
       if (value)
 	cupsdSetDeviceURI(p, value);
@@ -1106,7 +1089,7 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "Option") && value)
+    else if (!_cups_strcasecmp(line, "Option") && value)
     {
      /*
       * Option name value
@@ -1125,7 +1108,7 @@ cupsdLoadAllPrinters(void)
 	                               &(p->options));
       }
     }
-    else if (!strcasecmp(line, "PortMonitor"))
+    else if (!_cups_strcasecmp(line, "PortMonitor"))
     {
       if (value && strcmp(value, "none"))
 	cupsdSetString(&p->port_monitor, value);
@@ -1135,10 +1118,9 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "Reason"))
+    else if (!_cups_strcasecmp(line, "Reason"))
     {
       if (value &&
-          strcmp(value, "com.apple.print.recoverable-warning") &&
           strcmp(value, "connecting-to-device") &&
           strcmp(value, "cups-insecure-filter-warning") &&
           strcmp(value, "cups-missing-filter-warning"))
@@ -1158,15 +1140,15 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "State"))
+    else if (!_cups_strcasecmp(line, "State"))
     {
      /*
       * Set the initial queue state...
       */
 
-      if (value && !strcasecmp(value, "idle"))
+      if (value && !_cups_strcasecmp(value, "idle"))
         p->state = IPP_PRINTER_IDLE;
-      else if (value && !strcasecmp(value, "stopped"))
+      else if (value && !_cups_strcasecmp(value, "stopped"))
       {
         p->state = IPP_PRINTER_STOPPED;
 
@@ -1185,7 +1167,7 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "StateMessage"))
+    else if (!_cups_strcasecmp(line, "StateMessage"))
     {
      /*
       * Set the initial queue state message...
@@ -1194,7 +1176,7 @@ cupsdLoadAllPrinters(void)
       if (value)
 	strlcpy(p->state_message, value, sizeof(p->state_message));
     }
-    else if (!strcasecmp(line, "StateTime"))
+    else if (!_cups_strcasecmp(line, "StateTime"))
     {
      /*
       * Set the state time...
@@ -1203,27 +1185,27 @@ cupsdLoadAllPrinters(void)
       if (value)
         p->state_time = atoi(value);
     }
-    else if (!strcasecmp(line, "Accepting"))
+    else if (!_cups_strcasecmp(line, "Accepting"))
     {
      /*
       * Set the initial accepting state...
       */
 
       if (value &&
-          (!strcasecmp(value, "yes") ||
-           !strcasecmp(value, "on") ||
-           !strcasecmp(value, "true")))
+          (!_cups_strcasecmp(value, "yes") ||
+           !_cups_strcasecmp(value, "on") ||
+           !_cups_strcasecmp(value, "true")))
         p->accepting = 1;
       else if (value &&
-               (!strcasecmp(value, "no") ||
-        	!strcasecmp(value, "off") ||
-        	!strcasecmp(value, "false")))
+               (!_cups_strcasecmp(value, "no") ||
+        	!_cups_strcasecmp(value, "off") ||
+        	!_cups_strcasecmp(value, "false")))
         p->accepting = 0;
       else
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "Type"))
+    else if (!_cups_strcasecmp(line, "Type"))
     {
       if (value)
         p->type = atoi(value);
@@ -1231,65 +1213,27 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "Product"))
-    {
-      if (value)
-      {
-#ifdef HAVE_DNSSD
-        p->product = _cupsStrAlloc(value);
-#endif /* HAVE_DNSSD */
-      }
-      else
-	cupsdLogMessage(CUPSD_LOG_ERROR,
-	                "Syntax error on line %d of printers.conf.", linenum);
-    }
-    else if (!strcasecmp(line, "Filter"))
-    {
-      if (value)
-      {
-        if (!p->filters)
-	  p->filters = cupsArrayNew(NULL, NULL);
-
-	cupsArrayAdd(p->filters, _cupsStrAlloc(value));
-      }
-      else
-	cupsdLogMessage(CUPSD_LOG_ERROR,
-	                "Syntax error on line %d of printers.conf.", linenum);
-    }
-    else if (!strcasecmp(line, "PreFilter"))
-    {
-      if (value)
-      {
-        if (!p->pre_filters)
-	  p->pre_filters = cupsArrayNew(NULL, NULL);
-
-	cupsArrayAdd(p->pre_filters, _cupsStrAlloc(value));
-      }
-      else
-	cupsdLogMessage(CUPSD_LOG_ERROR,
-	                "Syntax error on line %d of printers.conf.", linenum);
-    }
-    else if (!strcasecmp(line, "Shared"))
+    else if (!_cups_strcasecmp(line, "Shared"))
     {
      /*
       * Set the initial shared state...
       */
 
       if (value &&
-          (!strcasecmp(value, "yes") ||
-           !strcasecmp(value, "on") ||
-           !strcasecmp(value, "true")))
+          (!_cups_strcasecmp(value, "yes") ||
+           !_cups_strcasecmp(value, "on") ||
+           !_cups_strcasecmp(value, "true")))
         p->shared = 1;
       else if (value &&
-               (!strcasecmp(value, "no") ||
-        	!strcasecmp(value, "off") ||
-        	!strcasecmp(value, "false")))
+               (!_cups_strcasecmp(value, "no") ||
+        	!_cups_strcasecmp(value, "off") ||
+        	!_cups_strcasecmp(value, "false")))
         p->shared = 0;
       else
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "JobSheets"))
+    else if (!_cups_strcasecmp(line, "JobSheets"))
     {
      /*
       * Set the initial job sheets...
@@ -1321,29 +1265,29 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "AllowUser"))
+    else if (!_cups_strcasecmp(line, "AllowUser"))
     {
       if (value)
       {
         p->deny_users = 0;
-        cupsdAddPrinterUser(p, value);
+        cupsdAddString(&(p->users), value);
       }
       else
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "DenyUser"))
+    else if (!_cups_strcasecmp(line, "DenyUser"))
     {
       if (value)
       {
         p->deny_users = 1;
-        cupsdAddPrinterUser(p, value);
+        cupsdAddString(&(p->users), value);
       }
       else
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "QuotaPeriod"))
+    else if (!_cups_strcasecmp(line, "QuotaPeriod"))
     {
       if (value)
         p->quota_period = atoi(value);
@@ -1351,7 +1295,7 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "PageLimit"))
+    else if (!_cups_strcasecmp(line, "PageLimit"))
     {
       if (value)
         p->page_limit = atoi(value);
@@ -1359,7 +1303,7 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "KLimit"))
+    else if (!_cups_strcasecmp(line, "KLimit"))
     {
       if (value)
         p->k_limit = atoi(value);
@@ -1367,7 +1311,7 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "OpPolicy"))
+    else if (!_cups_strcasecmp(line, "OpPolicy"))
     {
       if (value)
       {
@@ -1388,7 +1332,7 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "ErrorPolicy"))
+    else if (!_cups_strcasecmp(line, "ErrorPolicy"))
     {
       if (value)
         cupsdSetString(&p->error_policy, value);
@@ -1396,7 +1340,7 @@ cupsdLoadAllPrinters(void)
 	cupsdLogMessage(CUPSD_LOG_ERROR,
 	                "Syntax error on line %d of printers.conf.", linenum);
     }
-    else if (!strcasecmp(line, "Attribute") && value)
+    else if (!_cups_strcasecmp(line, "Attribute") && value)
     {
       for (valueptr = value; *valueptr && !isspace(*valueptr & 255); valueptr ++);
 
@@ -1416,15 +1360,18 @@ cupsdLoadAllPrinters(void)
           cupsdSetPrinterAttr(p, value, valueptr);
       }
     }
-    else
+    else if (_cups_strcasecmp(line, "Filter") &&
+             _cups_strcasecmp(line, "Prefilter") &&
+             _cups_strcasecmp(line, "Product"))
     {
      /*
-      * Something else we don't understand...
+      * Something else we don't understand (and that wasn't used in a prior
+      * release of CUPS...
       */
 
       cupsdLogMessage(CUPSD_LOG_ERROR,
-                      "Unknown configuration directive %s on line %d of printers.conf.",
-	              line, linenum);
+                      "Unknown configuration directive %s on line %d of "
+		      "printers.conf.", line, linenum);
     }
   }
 
@@ -1464,8 +1411,11 @@ cupsdRenamePrinter(
   mimeDeleteType(MimeDatabase, p->filetype);
   p->filetype = mimeAddType(MimeDatabase, "printer", name);
 
-  mimeDeleteType(MimeDatabase, p->prefiltertype);
-  p->prefiltertype = mimeAddType(MimeDatabase, "prefilter", name);
+  if (p->prefiltertype)
+  {
+    mimeDeleteType(MimeDatabase, p->prefiltertype);
+    p->prefiltertype = mimeAddType(MimeDatabase, "prefilter", name);
+  }
 
  /*
   * Rename the printer...
@@ -1507,10 +1457,11 @@ cupsdSaveAllPrinters(void)
 {
   int			i;		/* Looping var */
   cups_file_t		*fp;		/* printers.conf file */
-  char			temp[1024],	/* Temporary string */
-			backup[1024],	/* printers.conf.O file */
+  char			filename[1024],	/* printers.conf filename */
+			temp[1024],	/* Temporary string */
 			value[2048],	/* Value string */
-			*ptr;		/* Pointer into value */
+			*ptr,		/* Pointer into value */
+			*name;		/* Current user/group name */
   cupsd_printer_t	*printer;	/* Current printer class */
   time_t		curtime;	/* Current time */
   struct tm		*curdate;	/* Current date */
@@ -1522,35 +1473,12 @@ cupsdSaveAllPrinters(void)
   * Create the printers.conf file...
   */
 
-  snprintf(temp, sizeof(temp), "%s/printers.conf", ServerRoot);
-  snprintf(backup, sizeof(backup), "%s/printers.conf.O", ServerRoot);
+  snprintf(filename, sizeof(filename), "%s/printers.conf", ServerRoot);
 
-  if (rename(temp, backup))
-  {
-    if (errno != ENOENT)
-      cupsdLogMessage(CUPSD_LOG_ERROR,
-                      "Unable to backup printers.conf - %s", strerror(errno));
-  }
-
-  if ((fp = cupsFileOpen(temp, "w")) == NULL)
-  {
-    cupsdLogMessage(CUPSD_LOG_ERROR,
-                    "Unable to save printers.conf - %s", strerror(errno));
-
-    if (rename(backup, temp))
-      cupsdLogMessage(CUPSD_LOG_ERROR,
-                      "Unable to restore printers.conf - %s", strerror(errno));
+  if ((fp = cupsdCreateConfFile(filename, ConfigFilePerm & 0600)) == NULL)
     return;
-  }
-  else
-    cupsdLogMessage(CUPSD_LOG_INFO, "Saving printers.conf...");
 
- /*
-  * Restrict access to the file...
-  */
-
-  fchown(cupsFileNumber(fp), getuid(), Group);
-  fchmod(cupsFileNumber(fp), 0600);
+  cupsdLogMessage(CUPSD_LOG_INFO, "Saving printers.conf...");
 
  /*
   * Write a small header to the file...
@@ -1589,6 +1517,8 @@ cupsdSaveAllPrinters(void)
       cupsFilePrintf(fp, "<DefaultPrinter %s>\n", printer->name);
     else
       cupsFilePrintf(fp, "<Printer %s>\n", printer->name);
+
+    cupsFilePrintf(fp, "UUID %s\n", printer->uuid);
 
     if (printer->num_auth_info_required > 0)
     {
@@ -1643,28 +1573,12 @@ cupsdSaveAllPrinters(void)
     cupsFilePrintf(fp, "StateTime %d\n", (int)printer->state_time);
 
     for (i = 0; i < printer->num_reasons; i ++)
-      if (strcmp(printer->reasons[i], "com.apple.print.recoverable-warning") &&
-          strcmp(printer->reasons[i], "connecting-to-device") &&
+      if (strcmp(printer->reasons[i], "connecting-to-device") &&
           strcmp(printer->reasons[i], "cups-insecure-filter-warning") &&
           strcmp(printer->reasons[i], "cups-missing-filter-warning"))
         cupsFilePutConf(fp, "Reason", printer->reasons[i]);
 
     cupsFilePrintf(fp, "Type %d\n", printer->type);
-
-#ifdef HAVE_DNSSD
-    if (printer->product)
-      cupsFilePutConf(fp, "Product", printer->product);
-#endif /* HAVE_DNSSD */
-
-    for (ptr = (char *)cupsArrayFirst(printer->filters);
-         ptr;
-	 ptr = (char *)cupsArrayNext(printer->filters))
-      cupsFilePutConf(fp, "Filter", ptr);
-
-    for (ptr = (char *)cupsArrayFirst(printer->pre_filters);
-         ptr;
-	 ptr = (char *)cupsArrayNext(printer->pre_filters))
-      cupsFilePutConf(fp, "PreFilter", ptr);
 
     if (printer->accepting)
       cupsFilePuts(fp, "Accepting Yes\n");
@@ -1684,9 +1598,10 @@ cupsdSaveAllPrinters(void)
     cupsFilePrintf(fp, "PageLimit %d\n", printer->page_limit);
     cupsFilePrintf(fp, "KLimit %d\n", printer->k_limit);
 
-    for (i = 0; i < printer->num_users; i ++)
-      cupsFilePutConf(fp, printer->deny_users ? "DenyUser" : "AllowUser",
-                      printer->users[i]);
+    for (name = (char *)cupsArrayFirst(printer->users);
+         name;
+	 name = (char *)cupsArrayNext(printer->users))
+      cupsFilePutConf(fp, printer->deny_users ? "DenyUser" : "AllowUser", name);
 
     if (printer->op_policy)
       cupsFilePutConf(fp, "OpPolicy", printer->op_policy);
@@ -1818,7 +1733,7 @@ cupsdSaveAllPrinters(void)
 #endif /* __sgi */
   }
 
-  cupsFileClose(fp);
+  cupsdCloseCreatedConfFile(fp, filename);
 }
 
 
@@ -1872,6 +1787,16 @@ cupsdSetAuthInfoRequired(
 
         p->auth_info_required[p->num_auth_info_required] = "negotiate";
 	p->num_auth_info_required ++;
+
+       /*
+        * Don't allow sharing of queues that require Kerberos authentication.
+	*/
+
+	if (p->shared)
+	{
+	  cupsdDeregisterPrinter(p, 1);
+	  p->shared = 0;
+	}
       }
       else if ((end - values) == 6 && !strncmp(values, "domain", 6))
       {
@@ -1920,16 +1845,6 @@ cupsdSetAuthInfoRequired(
   if (!attr || attr->num_values > 4)
     return (0);
 
- /*
-  * Update the printer-type value as needed...
-  */
-
-  if (attr->num_values > 1 ||
-      strcmp(attr->values[0].string.text, "none"))
-    p->type |= CUPS_PRINTER_AUTHENTICATED;
-  else
-    p->type &= ~CUPS_PRINTER_AUTHENTICATED;
-
   for (i = 0; i < attr->num_values; i ++)
   {
     if (!strcmp(attr->values[i].string.text, "none"))
@@ -1949,6 +1864,16 @@ cupsdSetAuthInfoRequired(
 
       p->auth_info_required[p->num_auth_info_required] = "negotiate";
       p->num_auth_info_required ++;
+
+     /*
+      * Don't allow sharing of queues that require Kerberos authentication.
+      */
+
+      if (p->shared)
+      {
+	cupsdDeregisterPrinter(p, 1);
+	p->shared = 0;
+      }
 
       return (1);
     }
@@ -2056,7 +1981,9 @@ cupsdSetPrinterAttr(
   ipp_attribute_t	*attr;		/* Attribute */
   int			i,		/* Looping var */
 			count;		/* Number of values */
-  char			*ptr;		/* Pointer into value */
+  char			*ptr,		/* Pointer into value */
+			*start,		/* Start of value */
+			quote;		/* Quote character */
   ipp_tag_t		value_tag;	/* Value tag for this attribute */
 
 
@@ -2074,9 +2001,21 @@ cupsdSetPrinterAttr(
   * Count the number of values...
   */
 
-  for (count = 1, ptr = value;
-       (ptr = strchr(ptr, ',')) != NULL;
-       ptr ++, count ++);
+  for (count = 1, quote = '\0', ptr = value;
+       *ptr;
+       ptr ++)
+  {
+    if (*ptr == quote)
+      quote = '\0';
+    else if (quote)
+      continue;
+    else if (*ptr == '\\' && ptr[1])
+      ptr ++;
+    else if (*ptr == '\'' || *ptr == '\"')
+      quote = *ptr;
+    else if (*ptr == ',')
+      count ++;
+  }
 
  /*
   * Then add or update the attribute as needed...
@@ -2160,15 +2099,33 @@ cupsdSetPrinterAttr(
       return;
     }
 
-    for (i = 0; i < count; i ++)
+    for (i = 0, quote = '\0', ptr = value; i < count; i ++)
     {
-      if ((ptr = strchr(value, ',')) != NULL)
-        *ptr++ = '\0';
+      for (start = ptr; *ptr; ptr ++)
+      {
+	if (*ptr == quote)
+	  *ptr = quote = '\0';
+	else if (quote)
+	  continue;
+	else if (*ptr == '\\' && ptr[1])
+	  _cups_strcpy(ptr, ptr + 1);
+	else if (*ptr == '\'' || *ptr == '\"')
+	{
+	  quote = *ptr;
 
-      attr->values[i].string.text = _cupsStrAlloc(value);
+	  if (ptr == start)
+	    start ++;
+	  else
+	    _cups_strcpy(ptr, ptr + 1);
+	}
+	else if (*ptr == ',')
+	{
+	  *ptr++ = '\0';
+	  break;
+	}
+      }
 
-      if (ptr)
-        value = ptr;
+      attr->values[i].string.text = _cupsStrAlloc(start);
     }
   }
 }
@@ -2191,7 +2148,8 @@ cupsdSetPrinterAttrs(cupsd_printer_t *p)/* I - Printer to setup */
   ipp_t		*oldattrs;		/* Old printer attributes */
   ipp_attribute_t *attr;		/* Attribute data */
   cups_option_t	*option;		/* Current printer option */
-  char		*filter;		/* Current filter */
+  char		*name,			/* Current user/group name */
+		*filter;		/* Current filter */
   static const char * const air_none[] =
 		{			/* No authentication */
 		  "none"
@@ -2293,17 +2251,24 @@ cupsdSetPrinterAttrs(cupsd_printer_t *p)/* I - Printer to setup */
                NULL, p->location ? p->location : "");
   ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT, "printer-info",
                NULL, p->info ? p->info : "");
+  ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_URI, "printer-uuid", NULL,
+	       p->uuid);
 
-  if (p->num_users)
+  if (cupsArrayCount(p->users) > 0)
   {
     if (p->deny_users)
-      ippAddStrings(p->attrs, IPP_TAG_PRINTER, IPP_TAG_NAME,
-                    "requesting-user-name-denied", p->num_users, NULL,
-		    p->users);
+      attr = ippAddStrings(p->attrs, IPP_TAG_PRINTER, IPP_TAG_NAME,
+                           "requesting-user-name-denied",
+			   cupsArrayCount(p->users), NULL, NULL);
     else
-      ippAddStrings(p->attrs, IPP_TAG_PRINTER, IPP_TAG_NAME,
-                    "requesting-user-name-allowed", p->num_users, NULL,
-		    p->users);
+      attr = ippAddStrings(p->attrs, IPP_TAG_PRINTER, IPP_TAG_NAME,
+                           "requesting-user-name-allowed",
+			   cupsArrayCount(p->users), NULL, NULL);
+
+    for (i = 0, name = (char *)cupsArrayFirst(p->users);
+         name;
+	 i ++, name = (char *)cupsArrayNext(p->users))
+      attr->values[i].string.text = _cupsStrRetain(name);
   }
 
   ippAddInteger(p->attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
@@ -2342,8 +2307,24 @@ cupsdSetPrinterAttrs(cupsd_printer_t *p)/* I - Printer to setup */
     * Tell the client this is a remote printer of some type...
     */
 
-    ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_URI,
-	         "printer-uri-supported", NULL, p->uri);
+    if (strchr(p->uri, '?'))
+    {
+     /*
+      * Strip trailing "?options" from URI...
+      */
+
+      char *ptr;			/* Pointer into URI */
+
+      strlcpy(resource, p->uri, sizeof(resource));
+      if ((ptr = strchr(resource, '?')) != NULL)
+        *ptr = '\0';
+
+      ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_URI,
+		   "printer-uri-supported", NULL, resource);
+    }
+    else
+      ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_URI,
+		   "printer-uri-supported", NULL, p->uri);
 
     ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_URI, "printer-more-info",
 		 NULL, p->uri);
@@ -2426,18 +2407,56 @@ cupsdSetPrinterAttrs(cupsd_printer_t *p)/* I - Printer to setup */
       cupsdSetPrinterReasons(p, "-cups-missing-filter-warning,"
                                 "cups-insecure-filter-warning");
 
-      for (filter = (char *)cupsArrayFirst(p->filters);
-	   filter;
-	   filter = (char *)cupsArrayNext(p->filters))
-	add_printer_filter(p, p->filetype, filter);
-
-      if (p->pre_filters)
+      if (p->pc && p->pc->filters)
       {
-        p->prefiltertype = mimeAddType(MimeDatabase, "prefilter", p->name);
-
-        for (filter = (char *)cupsArrayFirst(p->pre_filters);
+	for (filter = (char *)cupsArrayFirst(p->pc->filters);
 	     filter;
-	     filter = (char *)cupsArrayNext(p->pre_filters))
+	     filter = (char *)cupsArrayNext(p->pc->filters))
+	  add_printer_filter(p, p->filetype, filter);
+      }
+      else if (!(p->type & CUPS_PRINTER_REMOTE))
+      {
+	char	interface[1024];	/* Interface script */
+
+
+	snprintf(interface, sizeof(interface), "%s/interfaces/%s", ServerRoot,
+		 p->name);
+	if (!access(interface, X_OK))
+	{
+	 /*
+	  * Yes, we have a System V style interface script; use it!
+	  */
+
+	  snprintf(interface, sizeof(interface), "*/* 0 %s/interfaces/%s",
+		   ServerRoot, p->name);
+	  add_printer_filter(p, p->filetype, interface);
+	}
+	else
+	{
+	 /*
+	  * Add a filter from application/vnd.cups-raw to printer/name to
+	  * handle "raw" printing by users.
+	  */
+
+	  add_printer_filter(p, p->filetype, "application/vnd.cups-raw 0 -");
+
+	 /*
+	  * Add a PostScript filter, since this is still possibly PS printer.
+	  */
+
+	  add_printer_filter(p, p->filetype,
+	                     "application/vnd.cups-postscript 0 -");
+	}
+      }
+
+      if (p->pc && p->pc->prefilters)
+      {
+        if (!p->prefiltertype)
+          p->prefiltertype = mimeAddType(MimeDatabase, "prefilter", p->name);
+
+        for (filter = (char *)cupsArrayFirst(p->pc->prefilters);
+	     filter;
+	     filter = (char *)cupsArrayNext(p->pc->prefilters))
 	  add_printer_filter(p, p->prefiltertype, filter);
       }
     }
@@ -2670,8 +2689,8 @@ cupsdSetPrinterAttrs(cupsd_printer_t *p)/* I - Printer to setup */
 
 int					/* O - 1 if something changed, 0 otherwise */
 cupsdSetPrinterReasons(
-    cupsd_printer_t  *p,		/* I - Printer */
-    const char *s)			/* I - Reasons strings */
+    cupsd_printer_t *p,			/* I - Printer */
+    const char      *s)			/* I - Reasons strings */
 {
   int		i,			/* Looping var */
 		changed = 0;		/* Did something change? */
@@ -2705,10 +2724,7 @@ cupsdSetPrinterReasons(
     p->num_reasons = 0;
     changed        = 1;
 
-    cupsdMarkDirty(CUPSD_DIRTY_PRINTERS);
-
-    if (PrintcapFormat == PRINTCAP_PLIST)
-      cupsdMarkDirty(CUPSD_DIRTY_PRINTCAP);
+    dirty_printer(p);
   }
 
   if (!strcmp(s, "none"))
@@ -2761,12 +2777,7 @@ cupsdSetPrinterReasons(
 	    cupsdSetPrinterState(p, IPP_PRINTER_IDLE, 1);
 
           if (strcmp(reason, "connecting-to-device"))
-	  {
-	    cupsdMarkDirty(CUPSD_DIRTY_PRINTERS);
-
-	    if (PrintcapFormat == PRINTCAP_PLIST)
-	      cupsdMarkDirty(CUPSD_DIRTY_PRINTCAP);
-          }
+	    dirty_printer(p);
 	  break;
 	}
     }
@@ -2782,6 +2793,10 @@ cupsdSetPrinterReasons(
 
       if (i >= p->num_reasons)
       {
+        if (!strncmp(reason, "cups-ipp-missing-", 17) ||
+	    !strncmp(reason, "cups-ipp-wrong-", 15))
+	  log_ipp_conformance(p, reason);
+
         if (i >= (int)(sizeof(p->reasons) / sizeof(p->reasons[0])))
 	{
 	  cupsdLogMessage(CUPSD_LOG_ALERT,
@@ -2798,12 +2813,7 @@ cupsdSetPrinterReasons(
 	  cupsdSetPrinterState(p, IPP_PRINTER_STOPPED, 1);
 
 	if (strcmp(reason, "connecting-to-device"))
-	{
-	  cupsdMarkDirty(CUPSD_DIRTY_PRINTERS);
-
-	  if (PrintcapFormat == PRINTCAP_PLIST)
-	    cupsdMarkDirty(CUPSD_DIRTY_PRINTCAP);
-	}
+	  dirty_printer(p);
       }
     }
   }
@@ -2842,9 +2852,6 @@ cupsdSetPrinterState(
   * Set the new state...
   */
 
-  if (PrintcapFormat == PRINTCAP_PLIST)
-    cupsdMarkDirty(CUPSD_DIRTY_PRINTCAP);
-
   old_state = p->state;
   p->state  = s;
 
@@ -2854,7 +2861,7 @@ cupsdSetPrinterState(
                       CUPSD_EVENT_PRINTER_STATE, p, NULL,
 		  "%s \"%s\" state changed to %s.",
 		  (p->type & CUPS_PRINTER_CLASS) ? "Class" : "Printer",
-		  p->name, printer_states[p->state]);
+		  p->name, printer_states[p->state - IPP_PRINTER_IDLE]);
 
    /*
     * Let the browse code know this needs to be updated...
@@ -2886,12 +2893,6 @@ cupsdSetPrinterState(
     p->state_message[0] = '\0';
 
  /*
-  * Update the printer history...
-  */
-
-  cupsdAddPrinterHistory(p);
-
- /*
   * Let the browse protocols reflect the change...
   */
 
@@ -2905,12 +2906,7 @@ cupsdSetPrinterState(
 
   if (update &&
       (old_state == IPP_PRINTER_STOPPED) != (s == IPP_PRINTER_STOPPED))
-  {
-    if (p->type & CUPS_PRINTER_CLASS)
-      cupsdMarkDirty(CUPSD_DIRTY_CLASSES);
-    else
-      cupsdMarkDirty(CUPSD_DIRTY_PRINTERS);
-  }
+    dirty_printer(p);
 }
 
 
@@ -3202,12 +3198,12 @@ cupsdValidateDest(
   * Change localhost to the server name...
   */
 
-  if (!strcasecmp(hostname, "localhost"))
+  if (!_cups_strcasecmp(hostname, "localhost"))
     strlcpy(hostname, ServerName, sizeof(hostname));
 
   strlcpy(localname, hostname, sizeof(localname));
 
-  if (!strcasecmp(hostname, ServerName))
+  if (!_cups_strcasecmp(hostname, ServerName))
   {
    /*
     * Localize the hostname...
@@ -3224,7 +3220,7 @@ cupsdValidateDest(
 
       while (lptr != NULL)
       {
-	if (!strcasecmp(lptr, sptr))
+	if (!_cups_strcasecmp(lptr, sptr))
 	{
           *lptr = '\0';
 	  break;
@@ -3244,8 +3240,8 @@ cupsdValidateDest(
   for (p = (cupsd_printer_t *)cupsArrayFirst(Printers);
        p;
        p = (cupsd_printer_t *)cupsArrayNext(Printers))
-    if (!strcasecmp(p->hostname, localname) &&
-        !strcasecmp(p->name, rptr))
+    if (!_cups_strcasecmp(p->hostname, localname) &&
+        !_cups_strcasecmp(p->name, rptr))
     {
       if (printer)
         *printer = p;
@@ -3567,31 +3563,85 @@ add_printer_filter(
 {
   char		super[MIME_MAX_SUPER],	/* Super-type for filter */
 		type[MIME_MAX_TYPE],	/* Type for filter */
+		dsuper[MIME_MAX_SUPER],	/* Destination super-type for filter */
+		dtype[MIME_MAX_TYPE],	/* Destination type for filter */
+		dest[MIME_MAX_SUPER + MIME_MAX_TYPE + 2],
+					/* Destination super/type */
 		program[1024];		/* Program/filter name */
   int		cost;			/* Cost of filter */
-  mime_type_t	*temptype;		/* MIME type looping var */
-  char		filename[1024],		/* Full filter filename */
-		*dirsep;		/* Pointer to directory separator */
-  struct stat	fileinfo;		/* File information */
+  size_t	maxsize = 0;		/* Maximum supported file size */
+  mime_type_t	*temptype,		/* MIME type looping var */
+		*desttype;		/* Destination MIME type */
+  mime_filter_t	*filterptr;		/* MIME filter */
+  char		filename[1024];		/* Full filter filename */
 
+
+  cupsdLogMessage(CUPSD_LOG_DEBUG2,
+                  "add_printer_filter(p=%p(%s), filtertype=%p(%s/%s), "
+		  "filter=\"%s\")", p, p->name, filtertype, filtertype->super,
+		  filtertype->type, filter);
 
  /*
-  * Parse the filter string; it should be in the following format:
+  * Parse the filter string; it should be in one of the following formats:
   *
-  *     super/type cost program
+  *     source/type cost program
+  *     source/type cost maxsize(nnnn) program
+  *     source/type dest/type cost program
+  *     source/type dest/type cost maxsize(nnnn) program
   */
 
-  if (sscanf(filter, "%15[^/]/%31s%d%*[ \t]%1023[^\n]", super, type, &cost,
-             program) != 4)
+  if (sscanf(filter, "%15[^/]/%255s%*[ \t]%15[^/]/%255s%d%*[ \t]%1023[^\n]",
+             super, type, dsuper, dtype, &cost, program) == 6)
   {
-    cupsdLogMessage(CUPSD_LOG_ERROR, "%s: invalid filter string \"%s\"!",
-                    p->name, filter);
-    return;
+    snprintf(dest, sizeof(dest), "%s/%s/%s", p->name, dsuper, dtype);
+
+    if ((desttype = mimeType(MimeDatabase, "printer", dest)) == NULL)
+    {
+      desttype = mimeAddType(MimeDatabase, "printer", dest);
+      if (!p->dest_types)
+        p->dest_types = cupsArrayNew(NULL, NULL);
+
+      cupsArrayAdd(p->dest_types, desttype);
+    }
+
+  }
+  else
+  {
+    if (sscanf(filter, "%15[^/]/%255s%d%*[ \t]%1023[^\n]", super, type, &cost,
+               program) == 4)
+    {
+      desttype = filtertype;
+    }
+    else
+    {
+      cupsdLogMessage(CUPSD_LOG_ERROR, "%s: invalid filter string \"%s\"!",
+                      p->name, filter);
+      return;
+    }
+  }
+
+  if (!strncmp(program, "maxsize(", 8))
+  {
+    char	*ptr;			/* Pointer into maxsize(nnnn) program */
+
+    maxsize = strtoll(program + 8, &ptr, 10);
+
+    if (*ptr != ')')
+    {
+      cupsdLogMessage(CUPSD_LOG_ERROR, "%s: invalid filter string \"%s\"!",
+                      p->name, filter);
+      return;
+    }
+
+    ptr ++;
+    while (_cups_isspace(*ptr))
+      ptr ++;
+
+    _cups_strcpy(program, ptr);
   }
 
  /*
-  * See if the filter program exists; if not, stop the printer and flag
-  * the error!
+  * Check permissions on the filter and its containing directory...
   */
 
   if (strcmp(program, "-"))
@@ -3601,73 +3651,8 @@ add_printer_filter(
     else
       snprintf(filename, sizeof(filename), "%s/filter/%s", ServerBin, program);
 
-    if (stat(filename, &fileinfo))
-    {
-      memset(&fileinfo, 0, sizeof(fileinfo));
-
-      snprintf(p->state_message, sizeof(p->state_message),
-               "Filter \"%s\" for printer \"%s\" not available: %s",
-	       filename, p->name, strerror(errno));
-      cupsdSetPrinterReasons(p, "+cups-missing-filter-warning");
-
-      cupsdLogMessage(CUPSD_LOG_ERROR, "%s", p->state_message);
-    }
-
-   /*
-    * When running as root, do additional security checks...
-    */
-
-    if (!RunUser)
-    {
-     /*
-      * Only use filters that are owned by root and do not have world write
-      * permissions.
-      */
-
-      if (fileinfo.st_uid || (fileinfo.st_mode & (S_ISUID | S_IWOTH)) != 0)
-      {
-	if (fileinfo.st_uid)
-	  snprintf(p->state_message, sizeof(p->state_message),
-		   "Filter \"%s\" for printer \"%s\" not owned by root",
-		   filename, p->name);
-	else
-	  snprintf(p->state_message, sizeof(p->state_message),
-		   "Filter \"%s\" for printer \"%s\" has insecure permissions "
-		   "(0%o)", filename, p->name, fileinfo.st_mode);
-
-	cupsdSetPrinterReasons(p, "+cups-insecure-filter-warning");
-
-	cupsdLogMessage(CUPSD_LOG_ERROR, "%s", p->state_message);
-      }
-      else if (fileinfo.st_mode)
-      {
-       /*
-	* Similarly, check that the parent directory is also owned by root and
-	* does not have world write permissions.
-	*/
-
-	if ((dirsep = strrchr(filename, '/')) != NULL)
-	  *dirsep = '\0';
-
-	if (!stat(filename, &fileinfo) &&
-	    (fileinfo.st_uid ||
-	     (fileinfo.st_mode & (S_ISUID | S_IWOTH)) != 0))
-	{
-	  if (fileinfo.st_uid)
-	    snprintf(p->state_message, sizeof(p->state_message),
-		     "Filter directory \"%s\" for printer \"%s\" not owned by "
-		     "root", filename, p->name);
-	  else
-	    snprintf(p->state_message, sizeof(p->state_message),
-		     "Filter directory \"%s\" for printer \"%s\" has insecure "
-		     "permissions (0%o)", filename, p->name, fileinfo.st_mode);
-
-	  cupsdSetPrinterReasons(p, "+cups-insecure-filter-warning");
-
-	  cupsdLogMessage(CUPSD_LOG_ERROR, "%s", p->state_message);
-	}
-      }
-    }
+    _cupsFileCheck(filename, _CUPS_FILE_CHECK_PROGRAM, !RunUser,
+                   cupsdLogFCMessage, p);
   }
 
  /*
@@ -3677,16 +3662,42 @@ add_printer_filter(
   for (temptype = mimeFirstType(MimeDatabase);
        temptype;
        temptype = mimeNextType(MimeDatabase))
-    if (((super[0] == '*' && strcasecmp(temptype->super, "printer")) ||
-         !strcasecmp(temptype->super, super)) &&
-        (type[0] == '*' || !strcasecmp(temptype->type, type)))
+    if (((super[0] == '*' && _cups_strcasecmp(temptype->super, "printer")) ||
+         !_cups_strcasecmp(temptype->super, super)) &&
+        (type[0] == '*' || !_cups_strcasecmp(temptype->type, type)))
     {
-      cupsdLogMessage(CUPSD_LOG_DEBUG2,
-                      "add_printer_filter: %s: adding filter %s/%s %s/%s %d %s",
-                      p->name, temptype->super, temptype->type,
-		      filtertype->super, filtertype->type,
-                      cost, program);
-      mimeAddFilter(MimeDatabase, temptype, filtertype, cost, program);
+      if (desttype != filtertype)
+      {
+        cupsdLogMessage(CUPSD_LOG_DEBUG2,
+		        "add_printer_filter: %s: adding filter %s/%s %s/%s %d "
+		        "%s", p->name, temptype->super, temptype->type,
+		        desttype->super, desttype->type,
+		        cost, program);
+        filterptr = mimeAddFilter(MimeDatabase, temptype, desttype, cost,
+	                          program);
+
+        if (!mimeFilterLookup(MimeDatabase, desttype, filtertype))
+        {
+          cupsdLogMessage(CUPSD_LOG_DEBUG2,
+	                  "add_printer_filter: %s: adding filter %s/%s %s/%s "
+	                  "0 -", p->name, desttype->super, desttype->type,
+		          filtertype->super, filtertype->type);
+          mimeAddFilter(MimeDatabase, desttype, filtertype, 0, "-");
+        }
+      }
+      else
+      {
+        cupsdLogMessage(CUPSD_LOG_DEBUG2,
+		        "add_printer_filter: %s: adding filter %s/%s %s/%s %d "
+		        "%s", p->name, temptype->super, temptype->type,
+		        filtertype->super, filtertype->type,
+		        cost, program);
+        filterptr = mimeAddFilter(MimeDatabase, temptype, filtertype, cost,
+	                          program);
+      }
+
+      if (filterptr)
+	filterptr->maxsize = maxsize;
     }
 }
 
@@ -3736,6 +3747,9 @@ add_printer_formats(cupsd_printer_t *p)	/* I - Printer */
        type;
        type = mimeNextType(MimeDatabase))
   {
+    if (!_cups_strcasecmp(type->super, "printer"))
+      continue;
+
     snprintf(mimetype, sizeof(mimetype), "%s/%s", type->super, type->type);
 
     if ((filters = mimeFilter(MimeDatabase, type, p->filetype, NULL)) != NULL)
@@ -3816,19 +3830,21 @@ add_printer_formats(cupsd_printer_t *p)	/* I - Printer */
 	 type;
 	 type = (mime_type_t *)cupsArrayNext(p->filetypes))
     {
-      if (!strcasecmp(type->super, "application"))
+      if (!_cups_strcasecmp(type->super, "application"))
       {
-        if (!strcasecmp(type->type, "pdf"))
+        if (!_cups_strcasecmp(type->type, "pdf"))
 	  strlcat(pdl, "application/pdf,", sizeof(pdl));
-        else if (!strcasecmp(type->type, "postscript"))
+        else if (!_cups_strcasecmp(type->type, "postscript"))
 	  strlcat(pdl, "application/postscript,", sizeof(pdl));
       }
-      else if (!strcasecmp(type->super, "image"))
+      else if (!_cups_strcasecmp(type->super, "image"))
       {
-        if (!strcasecmp(type->type, "jpeg"))
+        if (!_cups_strcasecmp(type->type, "jpeg"))
 	  strlcat(pdl, "image/jpeg,", sizeof(pdl));
-	else if (!strcasecmp(type->type, "png"))
+	else if (!_cups_strcasecmp(type->type, "png"))
 	  strlcat(pdl, "image/png,", sizeof(pdl));
+	else if (!_cups_strcasecmp(type->type, "pwg-raster"))
+	  strlcat(pdl, "image/pwg-raster,", sizeof(pdl));
       }
     }
 
@@ -3842,21 +3858,6 @@ add_printer_formats(cupsd_printer_t *p)	/* I - Printer */
 
 
 /*
- * 'add_string_array()' - Add a string to an array of CUPS strings.
- */
-
-static void
-add_string_array(cups_array_t **a,	/* I - Array */
-		 const char   *s)	/* I - String */
-{
-  if (!*a)
-    *a = cupsArrayNew(NULL, NULL);
-
-  cupsArrayAdd(*a, _cupsStrAlloc(s));
-}
-
-
-/*
  * 'compare_printers()' - Compare two printers.
  */
 
@@ -3865,7 +3866,9 @@ compare_printers(void *first,		/* I - First printer */
                  void *second,		/* I - Second printer */
 		 void *data)		/* I - App data (not used) */
 {
-  return (strcasecmp(((cupsd_printer_t *)first)->name,
+  (void)data;
+
+  return (_cups_strcasecmp(((cupsd_printer_t *)first)->name,
                      ((cupsd_printer_t *)second)->name));
 }
 
@@ -3879,6 +3882,7 @@ delete_printer_filters(
     cupsd_printer_t *p)			/* I - Printer to remove from */
 {
   mime_filter_t	*filter;		/* MIME filter looping var */
+  mime_type_t	*type;			/* Destination types for filters */
 
 
  /*
@@ -3896,7 +3900,8 @@ delete_printer_filters(
   for (filter = mimeFirstFilter(MimeDatabase);
        filter;
        filter = mimeNextFilter(MimeDatabase))
-    if (filter->dst == p->filetype || filter->dst == p->prefiltertype)
+    if (filter->dst == p->filetype || filter->dst == p->prefiltertype ||
+        cupsArrayFind(p->dest_types, filter->dst))
     {
      /*
       * Delete the current filter...
@@ -3905,28 +3910,36 @@ delete_printer_filters(
       mimeDeleteFilter(MimeDatabase, filter);
     }
 
+  for (type = (mime_type_t *)cupsArrayFirst(p->dest_types);
+       type;
+       type = (mime_type_t *)cupsArrayNext(p->dest_types))
+    mimeDeleteType(MimeDatabase, type);
+
+  cupsArrayDelete(p->dest_types);
+  p->dest_types = NULL;
+
   cupsdSetPrinterReasons(p, "-cups-insecure-filter-warning"
                             ",cups-missing-filter-warning");
 }
 
 
 /*
- * 'delete_string_array()' - Delete an array of CUPS strings.
+ * 'dirty_printer()' - Mark config and state files dirty for the specified
+ *                     printer.
  */
 
 static void
-delete_string_array(cups_array_t **a)	/* I - Array */
+dirty_printer(cupsd_printer_t *p)	/* I - Printer */
 {
-  char	*ptr;				/* Current string */
+  if (p->type & CUPS_PRINTER_DISCOVERED)
+    cupsdMarkDirty(CUPSD_DIRTY_REMOTE);
+  else if (p->type & CUPS_PRINTER_CLASS)
+    cupsdMarkDirty(CUPSD_DIRTY_CLASSES);
+  else
+    cupsdMarkDirty(CUPSD_DIRTY_PRINTERS);
 
-
-  for (ptr = (char *)cupsArrayFirst(*a);
-       ptr;
-       ptr = (char *)cupsArrayNext(*a))
-    _cupsStrFree(ptr);
-
-  cupsArrayDelete(*a);
-  *a = NULL;
+  if (PrintcapFormat == PRINTCAP_PLIST)
+    cupsdMarkDirty(CUPSD_DIRTY_PRINTCAP);
 }
 
 
@@ -3938,11 +3951,8 @@ static void
 load_ppd(cupsd_printer_t *p)		/* I - Printer */
 {
   int		i, j, k;		/* Looping vars */
-  cups_file_t	*cache;			/* IPP cache file */
-  char		cache_name[1024];	/* IPP cache filename */
-  struct stat	cache_info;		/* IPP cache file info */
-  char		pwg_name[1024];		/* PWG cache filename */
-  struct stat	pwg_info;		/* PWG cache file info */
+  char		cache_name[1024];	/* Cache filename */
+  struct stat	cache_info;		/* Cache file info */
   ppd_file_t	*ppd;			/* PPD file */
   char		ppd_name[1024];		/* PPD filename */
   struct stat	ppd_info;		/* PPD file info */
@@ -3970,6 +3980,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 		qualities[3];		/* print-quality values */
   int		num_margins,		/* Number of media-*-margin-supported values */
 		margins[16];		/* media-*-margin-supported values */
+  const char	*filter;		/* Current filter */
   static const char * const sides[3] =	/* sides-supported values */
 		{
 		  "one-sided",
@@ -3988,44 +3999,33 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
   * Check to see if the cache is up-to-date...
   */
 
-  snprintf(cache_name, sizeof(cache_name), "%s/%s.ipp2", CacheDir, p->name);
+  snprintf(cache_name, sizeof(cache_name), "%s/%s.data", CacheDir, p->name);
   if (stat(cache_name, &cache_info))
     cache_info.st_mtime = 0;
-
-  snprintf(pwg_name, sizeof(pwg_name), "%s/%s.pwg", CacheDir, p->name);
-  if (stat(pwg_name, &pwg_info))
-    pwg_info.st_mtime = 0;
 
   snprintf(ppd_name, sizeof(ppd_name), "%s/ppd/%s.ppd", ServerRoot, p->name);
   if (stat(ppd_name, &ppd_info))
     ppd_info.st_mtime = 1;
 
   ippDelete(p->ppd_attrs);
-  p->ppd_attrs = ippNew();
+  p->ppd_attrs = NULL;
 
-  _pwgDestroy(p->pwg);
-  p->pwg = NULL;
+  _ppdCacheDestroy(p->pc);
+  p->pc = NULL;
 
-  if (pwg_info.st_mtime >= ppd_info.st_mtime)
-    p->pwg = _pwgCreateWithFile(pwg_name);
-
-  if (cache_info.st_mtime >= ppd_info.st_mtime && p->pwg &&
-      (cache = cupsFileOpen(cache_name, "r")) != NULL)
+  if (cache_info.st_mtime >= ppd_info.st_mtime)
   {
-   /*
-    * Load cached information and return...
-    */
-
     cupsdLogMessage(CUPSD_LOG_DEBUG, "load_ppd: Loading %s...", cache_name);
 
-    if (ippReadIO(cache, (ipp_iocb_t)cupsFileRead, 1, NULL,
-                  p->ppd_attrs) == IPP_DATA)
+    if ((p->pc = _ppdCacheCreateWithFile(cache_name, &p->ppd_attrs)) != NULL &&
+        p->ppd_attrs)
     {
-      cupsFileClose(cache);
+     /*
+      * Loaded successfully!
+      */
+
       return;
     }
-
-    cupsFileClose(cache);
   }
 
  /*
@@ -4034,13 +4034,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 
   cupsdMarkDirty(CUPSD_DIRTY_PRINTERS);
 
-  _pwgDestroy(p->pwg);
-  p->pwg = NULL;
-
   cupsdLogMessage(CUPSD_LOG_DEBUG, "load_ppd: Loading %s...", ppd_name);
-
-  delete_string_array(&(p->filters));
-  delete_string_array(&(p->pre_filters));
 
   p->type &= ~CUPS_PRINTER_OPTIONS;
   p->type |= CUPS_PRINTER_BW;
@@ -4048,13 +4042,15 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
   finishings[0]  = IPP_FINISHINGS_NONE;
   num_finishings = 1;
 
+  p->ppd_attrs = ippNew();
+
   if ((ppd = ppdOpenFile(ppd_name)) != NULL)
   {
    /*
     * Add make/model and other various attributes...
     */
 
-    p->pwg = _pwgCreateWithPPD(ppd);
+    p->pc = _ppdCacheCreateWithPPD(ppd);
 
     ppdMarkDefaults(ppd);
 
@@ -4065,7 +4061,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
     if (!ppd->manual_copies)
       p->type |= CUPS_PRINTER_COPIES;
     if ((ppd_attr = ppdFindAttr(ppd, "cupsFax", NULL)) != NULL)
-      if (ppd_attr->value && !strcasecmp(ppd_attr->value, "true"))
+      if (ppd_attr->value && !_cups_strcasecmp(ppd_attr->value, "true"))
 	p->type |= CUPS_PRINTER_FAX;
 
     ippAddBoolean(p->ppd_attrs, IPP_TAG_PRINTER, "color-supported",
@@ -4078,6 +4074,18 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 	ippAddInteger(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
 		      "pages-per-minute-color", ppd->throughput);
     }
+    else
+    {
+     /*
+      * When there is no speed information, just say "1 page per minute".
+      */
+
+      ippAddInteger(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+		    "pages-per-minute", 1);
+      if (ppd->color_device)
+	ippAddInteger(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
+		      "pages-per-minute-color", 1);
+    }
 
     num_qualities = 0;
 
@@ -4086,9 +4094,9 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       if (ppdFindChoice(output_mode, "draft") ||
           ppdFindChoice(output_mode, "fast"))
         qualities[num_qualities ++] = IPP_QUALITY_DRAFT;
-      if (ppdFindChoice(output_mode, "normal") ||
-          ppdFindChoice(output_mode, "good"))
-        qualities[num_qualities ++] = IPP_QUALITY_NORMAL;
+
+      qualities[num_qualities ++] = IPP_QUALITY_NORMAL;
+
       if (ppdFindChoice(output_mode, "best") ||
           ppdFindChoice(output_mode, "high"))
         qualities[num_qualities ++] = IPP_QUALITY_HIGH;
@@ -4110,8 +4118,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       qualities[num_qualities ++] = IPP_QUALITY_NORMAL;
       qualities[num_qualities ++] = IPP_QUALITY_HIGH;
     }
-
-    if (num_qualities == 0)
+    else
       qualities[num_qualities ++] = IPP_QUALITY_NORMAL;
 
     ippAddIntegers(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_ENUM,
@@ -4146,7 +4153,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
     * Add media options from the PPD file...
     */
 
-    if (ppd->num_sizes == 0 || !p->pwg)
+    if (ppd->num_sizes == 0 || !p->pc)
     {
       if (!ppdFindAttr(ppd, "APScannerOnly", NULL))
 	cupsdLogMessage(CUPSD_LOG_CRIT,
@@ -4165,7 +4172,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       */
 
       if ((size = ppdPageSize(ppd, NULL)) != NULL)
-        pwgsize = _pwgGetSize(p->pwg, size->name);
+        pwgsize = _ppdCacheGetSize(p->pc, size->name);
       else
         pwgsize = NULL;
 
@@ -4185,12 +4192,12 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 	media_type = ppdFindMarkedChoice(ppd, "MediaType");
 	col        = new_media_col(pwgsize,
 			           input_slot ?
-				       _pwgGetSource(p->pwg,
-				                     input_slot->choice) :
+				       _ppdCacheGetSource(p->pc,
+				                          input_slot->choice) :
 				       NULL,
 				   media_type ?
-				       _pwgGetType(p->pwg,
-				                   media_type->choice) :
+				       _ppdCacheGetType(p->pc,
+				                        media_type->choice) :
 				       NULL);
 
 	ippAddCollection(p->ppd_attrs, IPP_TAG_PRINTER, "media-col-default",
@@ -4202,8 +4209,8 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       * media-supported
       */
 
-      num_media = p->pwg->num_sizes;
-      if (p->pwg->custom_min_keyword)
+      num_media = p->pc->num_sizes;
+      if (p->pc->custom_min_keyword)
 	num_media += 2;
 
       if ((attr = ippAddStrings(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
@@ -4212,16 +4219,16 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       {
 	val = attr->values;
 
-        for (i = p->pwg->num_sizes, pwgsize = p->pwg->sizes;
+        for (i = p->pc->num_sizes, pwgsize = p->pc->sizes;
 	     i > 0;
 	     i --, pwgsize ++, val ++)
 	  val->string.text = _cupsStrRetain(pwgsize->map.pwg);
 
-        if (p->pwg->custom_min_keyword)
+        if (p->pc->custom_min_keyword)
 	{
-	  val->string.text = _cupsStrRetain(p->pwg->custom_min_keyword);
+	  val->string.text = _cupsStrRetain(p->pc->custom_min_keyword);
 	  val ++;
-	  val->string.text = _cupsStrRetain(p->pwg->custom_max_keyword);
+	  val->string.text = _cupsStrRetain(p->pc->custom_max_keyword);
         }
       }
 
@@ -4229,12 +4236,12 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       * media-source-supported
       */
 
-      if (p->pwg->num_sources > 0 &&
+      if (p->pc->num_sources > 0 &&
           (attr = ippAddStrings(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-	                        "media-source-supported", p->pwg->num_sources,
+	                        "media-source-supported", p->pc->num_sources,
 			        NULL, NULL)) != NULL)
       {
-	for (i = p->pwg->num_sources, pwgsource = p->pwg->sources,
+	for (i = p->pc->num_sources, pwgsource = p->pc->sources,
 	         val = attr->values;
 	     i > 0;
 	     i --, pwgsource ++, val ++)
@@ -4245,12 +4252,12 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       * media-type-supported
       */
 
-      if (p->pwg->num_types > 0 &&
+      if (p->pc->num_types > 0 &&
           (attr = ippAddStrings(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-	                        "media-type-supported", p->pwg->num_types,
+	                        "media-type-supported", p->pc->num_types,
 			        NULL, NULL)) != NULL)
       {
-	for (i = p->pwg->num_types, pwgtype = p->pwg->types,
+	for (i = p->pc->num_types, pwgtype = p->pc->types,
 	         val = attr->values;
 	     i > 0;
 	     i --, pwgtype ++, val ++)
@@ -4261,7 +4268,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       * media-*-margin-supported
       */
 
-      for (i = p->pwg->num_sizes, pwgsize = p->pwg->sizes, num_margins = 0;
+      for (i = p->pc->num_sizes, pwgsize = p->pc->sizes, num_margins = 0;
 	   i > 0 && num_margins < (int)(sizeof(margins) / sizeof(margins[0]));
 	   i --, pwgsize ++)
       {
@@ -4283,7 +4290,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
         ippAddInteger(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
 		      "media-bottom-margin-supported", 0);
 
-      for (i = p->pwg->num_sizes, pwgsize = p->pwg->sizes, num_margins = 0;
+      for (i = p->pc->num_sizes, pwgsize = p->pc->sizes, num_margins = 0;
 	   i > 0 && num_margins < (int)(sizeof(margins) / sizeof(margins[0]));
 	   i --, pwgsize ++)
       {
@@ -4305,7 +4312,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
         ippAddInteger(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
 		      "media-left-margin-supported", 0);
 
-      for (i = p->pwg->num_sizes, pwgsize = p->pwg->sizes, num_margins = 0;
+      for (i = p->pc->num_sizes, pwgsize = p->pc->sizes, num_margins = 0;
 	   i > 0 && num_margins < (int)(sizeof(margins) / sizeof(margins[0]));
 	   i --, pwgsize ++)
       {
@@ -4327,7 +4334,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
         ippAddInteger(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_INTEGER,
 		      "media-right-margin-supported", 0);
 
-      for (i = p->pwg->num_sizes, pwgsize = p->pwg->sizes, num_margins = 0;
+      for (i = p->pc->num_sizes, pwgsize = p->pc->sizes, num_margins = 0;
 	   i > 0 && num_margins < (int)(sizeof(margins) / sizeof(margins[0]));
 	   i --, pwgsize ++)
       {
@@ -4353,23 +4360,23 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       * media-col-database
       */
 
-      num_media = p->pwg->num_sizes;
-      if (p->pwg->num_sources)
+      num_media = p->pc->num_sizes;
+      if (p->pc->num_sources)
       {
-        if (p->pwg->num_types > 0)
-	  num_media += p->pwg->num_sizes * p->pwg->num_sources *
-	               p->pwg->num_types;
+        if (p->pc->num_types > 0)
+	  num_media += p->pc->num_sizes * p->pc->num_sources *
+	               p->pc->num_types;
 	else
-          num_media += p->pwg->num_sizes * p->pwg->num_sources;
+          num_media += p->pc->num_sizes * p->pc->num_sources;
       }
-      else if (p->pwg->num_types)
-        num_media += p->pwg->num_sizes * p->pwg->num_types;
+      else if (p->pc->num_types)
+        num_media += p->pc->num_sizes * p->pc->num_types;
 
       if ((attr = ippAddCollections(p->ppd_attrs, IPP_TAG_PRINTER,
                                     "media-col-database", num_media,
 				    NULL)) != NULL)
       {
-        for (i = p->pwg->num_sizes, pwgsize = p->pwg->sizes, val = attr->values;
+        for (i = p->pc->num_sizes, pwgsize = p->pc->sizes, val = attr->values;
 	     i > 0;
 	     i --, pwgsize ++)
 	{
@@ -4387,17 +4394,17 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 	  * type...
 	  */
 
-	  if (p->pwg->num_sources > 0)
+	  if (p->pc->num_sources > 0)
 	  {
-	    for (j = p->pwg->num_sources, pwgsource = p->pwg->sources;
+	    for (j = p->pc->num_sources, pwgsource = p->pc->sources;
 	         j > 0;
 		 j --, pwgsource ++)
 	    {
 	      ppdMarkOption(ppd, "InputSlot", pwgsource->ppd);
 
-	      if (p->pwg->num_types > 0)
+	      if (p->pc->num_types > 0)
 	      {
-	        for (k = p->pwg->num_types, pwgtype = p->pwg->types;
+	        for (k = p->pc->num_types, pwgtype = p->pc->types;
 		     k > 0;
 		     k --, pwgtype ++)
 		{
@@ -4416,9 +4423,9 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 	      }
 	    }
 	  }
-	  else if (p->pwg->num_types > 0)
+	  else if (p->pc->num_types > 0)
 	  {
-	    for (j = p->pwg->num_types, pwgtype = p->pwg->types;
+	    for (j = p->pc->num_types, pwgtype = p->pc->types;
 	         j > 0;
 		 j --, pwgtype ++)
 	    {
@@ -4443,40 +4450,48 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
     * Output bin...
     */
 
-    if (p->pwg && p->pwg->num_bins > 0)
+    if (p->pc && p->pc->num_bins > 0)
     {
       attr = ippAddStrings(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-			   "output-bin-supported", p->pwg->num_bins,
+			   "output-bin-supported", p->pc->num_bins,
 			   NULL, NULL);
 
       if (attr != NULL)
       {
 	for (i = 0, val = attr->values;
-	     i < p->pwg->num_bins;
+	     i < p->pc->num_bins;
 	     i ++, val ++)
-	  val->string.text = _cupsStrAlloc(p->pwg->bins[i].pwg);
+	  val->string.text = _cupsStrAlloc(p->pc->bins[i].pwg);
       }
 
       if ((output_bin = ppdFindOption(ppd, "OutputBin")) != NULL)
       {
-	for (i = 0; i < p->pwg->num_bins; i ++)
-	  if (!strcmp(p->pwg->bins[i].ppd, output_bin->defchoice))
+	for (i = 0; i < p->pc->num_bins; i ++)
+	  if (!strcmp(p->pc->bins[i].ppd, output_bin->defchoice))
 	    break;
 
-        if (i >= p->pwg->num_bins)
+        if (i >= p->pc->num_bins)
 	  i = 0;
 
 	ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-		     "output-bin-default", NULL, p->pwg->bins[i].pwg);
+		     "output-bin-default", NULL, p->pc->bins[i].pwg);
       }
       else
         ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
-	             "output-bin-default", NULL, p->pwg->bins[0].pwg);
+	             "output-bin-default", NULL, p->pc->bins[0].pwg);
     }
-    else if ((ppd_attr = ppdFindAttr(ppd, "DefaultOutputOrder",
+    else if (((ppd_attr = ppdFindAttr(ppd, "DefaultOutputOrder",
                                      NULL)) != NULL &&
-	     !strcasecmp(ppd_attr->value, "Reverse"))
+	      !_cups_strcasecmp(ppd_attr->value, "Reverse")) ||
+	     (!ppd_attr && ppd->manufacturer &&	/* "Compatibility heuristic" */
+	      (!_cups_strcasecmp(ppd->manufacturer, "epson") ||
+	       !_cups_strcasecmp(ppd->manufacturer, "lexmark"))))
     {
+     /*
+      * Report that this printer has a single output bin that leaves pages face
+      * up.
+      */
+
       ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
 		   "output-bin-supported", NULL, "face-up");
       ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
@@ -4488,6 +4503,41 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 		   "output-bin-supported", NULL, "face-down");
       ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
 		   "output-bin-default", NULL, "face-down");
+    }
+
+   /*
+    * output-mode and print-color-mode...
+    */
+
+    if (ppd->color_device)
+    {
+      static const char * const output_modes[] =
+      {
+        "monochrome",
+	"color"
+      };
+
+      ippAddStrings(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+                    "output-mode-supported", 2, NULL, output_modes);
+      ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+                   "output-mode-default", NULL, "color");
+
+      ippAddStrings(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+                    "print-color-mode-supported", 2, NULL, output_modes);
+      ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+                   "print-color-mode-default", NULL, "color");
+    }
+    else
+    {
+      ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+                   "output-mode-supported", NULL, "monochrome");
+      ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+                   "output-mode-default", NULL, "monochrome");
+
+      ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+                   "print-color-mode-supported", NULL, "monochrome");
+      ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
+                   "print-color-mode-default", NULL, "monochrome");
     }
 
    /*
@@ -4523,7 +4573,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 	  cupsdLogMessage(CUPSD_LOG_WARN,
 	                  "Bad resolution \"%s\" for printer %s.",
 			  choice->choice, p->name);
-	  xdpi = ydpi = 72;
+	  xdpi = ydpi = 300;
 	}
 
         attr->values[i].resolution.xres  = xdpi;
@@ -4557,7 +4607,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 	cupsdLogMessage(CUPSD_LOG_WARN,
 			"Bad default resolution \"%s\" for printer %s.",
 			ppd_attr->value, p->name);
-	xdpi = ydpi = 72;
+	xdpi = ydpi = 300;
       }
 
       ippAddResolution(p->ppd_attrs, IPP_TAG_PRINTER,
@@ -4575,15 +4625,17 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 
       ippAddResolution(p->ppd_attrs, IPP_TAG_PRINTER,
 		       "printer-resolution-default", IPP_RES_PER_INCH,
-		       72, 72);
+		       300, 300);
       ippAddResolution(p->ppd_attrs, IPP_TAG_PRINTER,
 		       "printer-resolution-supported", IPP_RES_PER_INCH,
-		       72, 72);
+		       300, 300);
     }
 
    /*
     * Duplexing, etc...
     */
+
+    ppdMarkDefaults(ppd);
 
     if ((duplex = ppdFindOption(ppd, "Duplex")) == NULL)
       if ((duplex = ppdFindOption(ppd, "EFDuplex")) == NULL)
@@ -4599,10 +4651,10 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       ippAddStrings(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
 		    "sides-supported", 3, NULL, sides);
 
-      if (!strcasecmp(duplex->defchoice, "DuplexTumble"))
+      if (!_cups_strcasecmp(duplex->defchoice, "DuplexTumble"))
 	ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
 		     "sides-default", NULL, "two-sided-short-edge");
-      else if (!strcasecmp(duplex->defchoice, "DuplexNoTumble"))
+      else if (!_cups_strcasecmp(duplex->defchoice, "DuplexNoTumble"))
 	ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
 		     "sides-default", NULL, "two-sided-long-edge");
       else
@@ -4641,82 +4693,31 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 	p->type |= CUPS_PRINTER_SMALL;
 
     if ((ppd_attr = ppdFindAttr(ppd, "APICADriver", NULL)) != NULL &&
-        ppd_attr->value && !strcasecmp(ppd_attr->value, "true"))
+        ppd_attr->value && !_cups_strcasecmp(ppd_attr->value, "true"))
     {
       if ((ppd_attr = ppdFindAttr(ppd, "APScannerOnly", NULL)) != NULL &&
-	  ppd_attr->value && !strcasecmp(ppd_attr->value, "true"))
+	  ppd_attr->value && !_cups_strcasecmp(ppd_attr->value, "true"))
         p->type |= CUPS_PRINTER_SCANNER;
       else
         p->type |= CUPS_PRINTER_MFP;
     }
 
    /*
-    * Add a filter from application/vnd.cups-raw to printer/name to
-    * handle "raw" printing by users.
+    * Scan the filters in the PPD file...
     */
 
-    add_string_array(&(p->filters), "application/vnd.cups-raw 0 -");
-
-   /*
-    * Add any pre-filters in the PPD file...
-    */
-
-    if ((ppd_attr = ppdFindAttr(ppd, "cupsPreFilter", NULL)) != NULL)
+    if (p->pc)
     {
-      for (; ppd_attr; ppd_attr = ppdFindNextAttr(ppd, "cupsPreFilter", NULL))
-	if (ppd_attr->value)
-	  add_string_array(&(p->pre_filters), ppd_attr->value);
-    }
-
-   /*
-    * Add any filters in the PPD file...
-    */
-
-    DEBUG_printf(("ppd->num_filters = %d\n", ppd->num_filters));
-    for (i = 0; i < ppd->num_filters; i ++)
-    {
-      DEBUG_printf(("ppd->filters[%d] = \"%s\"\n", i, ppd->filters[i]));
-      add_string_array(&(p->filters), ppd->filters[i]);
-
-      if (!strncasecmp(ppd->filters[i], "application/vnd.cups-command", 28) &&
-          isspace(ppd->filters[i][28] & 255))
-        p->type |= CUPS_PRINTER_COMMANDS;
-    }
-
-    if (ppd->num_filters == 0)
-    {
-     /*
-      * If there are no filters, add PostScript printing filters.
-      */
-
-      add_string_array(&(p->filters),
-                       "application/vnd.cups-command 0 commandtops");
-      add_string_array(&(p->filters),
-                       "application/vnd.cups-postscript 0 -");
-
-      p->type |= CUPS_PRINTER_COMMANDS;
-    }
-    else if (!(p->type & CUPS_PRINTER_COMMANDS))
-    {
-     /*
-      * See if this is a PostScript device without a command filter...
-      */
-
-      for (i = 0; i < ppd->num_filters; i ++)
-	if (!strncasecmp(ppd->filters[i],
-			 "application/vnd.cups-postscript", 31) &&
-            isspace(ppd->filters[i][31] & 255))
-	  break;
-
-      if (i < ppd->num_filters)
+      for (filter = (const char *)cupsArrayFirst(p->pc->filters);
+	   filter;
+	   filter = (const char *)cupsArrayNext(p->pc->filters))
       {
-       /*
-	* Add the generic PostScript command filter...
-	*/
-
-	add_string_array(&(p->filters),
-	                 "application/vnd.cups-command 0 commandtops");
-	p->type |= CUPS_PRINTER_COMMANDS;
+	if (!_cups_strncasecmp(filter, "application/vnd.cups-command", 28) &&
+	    _cups_isspace(filter[28]))
+	{
+	  p->type |= CUPS_PRINTER_COMMANDS;
+	  break;
+	}
       }
     }
 
@@ -4727,13 +4728,11 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 		*end;			/* End of name */
       int	count;			/* Number of commands */
 
-
-      if ((ppd_attr = ppdFindAttr(ppd, "cupsCommands", NULL)) != NULL &&
-	  ppd_attr->value && ppd_attr->value[0])
+      if ((ppd_attr = ppdFindAttr(ppd, "cupsCommands", NULL)) != NULL)
       {
 	for (count = 0, start = ppd_attr->value; *start; count ++)
 	{
-	  while (isspace(*start & 255))
+	  while (_cups_isspace(*start))
 	    start ++;
 
 	  if (!*start)
@@ -4749,7 +4748,8 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       if (count > 0)
       {
        /*
-	* Make a copy of the commands string and count how many ...
+	* Make a copy of the commands string and count how many commands there
+	* are...
 	*/
 
 	attr = ippAddStrings(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_KEYWORD,
@@ -4839,12 +4839,139 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 	attr->values[i].string.text = _cupsStrAlloc("bcp");
     }
 
-#ifdef HAVE_DNSSD
-    cupsdSetString(&p->product, ppd->product);
-#endif /* HAVE_DNSSD */
-
     if (ppdFindAttr(ppd, "APRemoteQueueID", NULL))
       p->type |= CUPS_PRINTER_REMOTE;
+
+#ifdef HAVE_APPLICATIONSERVICES_H
+   /*
+    * Convert the file referenced in APPrinterIconPath to a 128x128 PNG
+    * and save it as cacheDir/printername.png
+    */
+
+    if ((ppd_attr = ppdFindAttr(ppd, "APPrinterIconPath", NULL)) != NULL &&
+        ppd_attr->value &&
+	!_cupsFileCheck(ppd_attr->value, _CUPS_FILE_CHECK_FILE, !RunUser,
+	                cupsdLogFCMessage, p))
+    {
+      CGImageRef	imageRef = NULL;/* Current icon image */
+      CGImageRef	biggestIconRef = NULL;
+					/* Biggest icon image */
+      CGImageRef	closestTo128IconRef = NULL;
+					/* Icon image closest to and >= 128 */
+      CGImageSourceRef	sourceRef;	/* The file's image source */
+      char		outPath[HTTP_MAX_URI];
+					/* The path to the PNG file */
+      CFURLRef		outUrl;		/* The URL made from the outPath */
+      CFURLRef		icnsFileUrl;	/* The URL of the original ICNS icon file */
+      CGImageDestinationRef destRef;	/* The image destination to write */
+      size_t		bytesPerRow;	/* The bytes per row used for resizing */
+      CGContextRef	context;	/* The CG context used for resizing */
+
+      snprintf(outPath, sizeof(outPath), "%s/%s.png", CacheDir, p->name);
+      outUrl      = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault,
+                                                            (UInt8 *)outPath,
+						            strlen(outPath),
+						            FALSE);
+      icnsFileUrl = CFURLCreateFromFileSystemRepresentation(kCFAllocatorDefault,
+							    (UInt8 *)ppd_attr->value,
+							    strlen(ppd_attr->value),
+							    FALSE);
+      if (outUrl && icnsFileUrl)
+      {
+        sourceRef = CGImageSourceCreateWithURL(icnsFileUrl, NULL);
+        if (sourceRef)
+        {
+          for (i = 0; i < CGImageSourceGetCount(sourceRef); i ++)
+          {
+            imageRef = CGImageSourceCreateImageAtIndex(sourceRef, i, NULL);
+	    if (!imageRef)
+	      continue;
+
+            if (CGImageGetWidth(imageRef) == CGImageGetHeight(imageRef))
+            {
+             /*
+              * Loop through remembering the icon closest to 128 but >= 128
+              * and then remember the largest icon.
+              */
+
+              if (CGImageGetWidth(imageRef) >= 128 &&
+		  (!closestTo128IconRef ||
+		   CGImageGetWidth(imageRef) <
+		       CGImageGetWidth(closestTo128IconRef)))
+              {
+                CGImageRelease(closestTo128IconRef);
+                CGImageRetain(imageRef);
+                closestTo128IconRef = imageRef;
+              }
+
+              if (!biggestIconRef ||
+		  CGImageGetWidth(imageRef) > CGImageGetWidth(biggestIconRef))
+              {
+                CGImageRelease(biggestIconRef);
+                CGImageRetain(imageRef);
+                biggestIconRef = imageRef;
+              }
+	    }
+
+	    CGImageRelease(imageRef);
+          }
+
+          if (biggestIconRef)
+          {
+           /*
+            * If biggestIconRef is NULL, we found no icons. Otherwise we first
+            * want the closest to 128, but if none are larger than 128, we want
+            * the largest icon available.
+            */
+
+            imageRef = closestTo128IconRef ? closestTo128IconRef :
+                                             biggestIconRef;
+            CGImageRetain(imageRef);
+            CGImageRelease(biggestIconRef);
+            if (closestTo128IconRef)
+	      CGImageRelease(closestTo128IconRef);
+            destRef = CGImageDestinationCreateWithURL(outUrl, kUTTypePNG, 1,
+                                                      NULL);
+            if (destRef)
+            {
+              if (CGImageGetWidth(imageRef) != 128)
+              {
+                bytesPerRow = CGImageGetBytesPerRow(imageRef) /
+                              CGImageGetWidth(imageRef) * 128;
+                context     = CGBitmapContextCreate(NULL, 128, 128,
+						    CGImageGetBitsPerComponent(imageRef),
+						    bytesPerRow,
+						    CGImageGetColorSpace(imageRef),
+						    kCGImageAlphaPremultipliedFirst);
+                if (context)
+                {
+                  CGContextDrawImage(context, CGRectMake(0, 0, 128, 128),
+				     imageRef);
+                  CGImageRelease(imageRef);
+                  imageRef = CGBitmapContextCreateImage(context);
+                  CGContextRelease(context);
+                }
+              }
+
+              CGImageDestinationAddImage(destRef, imageRef, NULL);
+              CGImageDestinationFinalize(destRef);
+              CFRelease(destRef);
+            }
+
+            CGImageRelease(imageRef);
+          }
+
+          CFRelease(sourceRef);
+        }
+      }
+
+      if (outUrl)
+        CFRelease(outUrl);
+
+      if (icnsFileUrl)
+        CFRelease(icnsFileUrl);
+    }
+#endif /* HAVE_APPLICATIONSERVICES_H */
 
    /*
     * Close the PPD and set the type...
@@ -4872,19 +4999,6 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
     cupsdLogMessage(CUPSD_LOG_INFO,
 		    "Hint: Run \"cupstestppd %s\" and fix any errors.",
 		    ppd_name);
-
-   /*
-    * Add a filter from application/vnd.cups-raw to printer/name to
-    * handle "raw" printing by users.
-    */
-
-    add_string_array(&(p->filters), "application/vnd.cups-raw 0 -");
-
-   /*
-    * Add a PostScript filter, since this is still possibly PS printer.
-    */
-
-    add_string_array(&(p->filters), "application/vnd.cups-postscript 0 -");
   }
   else
   {
@@ -4906,10 +5020,6 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       ippAddString(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_TEXT,
 		   "printer-make-and-model", NULL,
 		   "Local System V Printer");
-
-      snprintf(interface, sizeof(interface), "*/* 0 %s/interfaces/%s",
-	       ServerRoot, p->name);
-      add_string_array(&(p->filters), interface);
     }
     else if (!strncmp(p->device_uri, "ipp://", 6) &&
 	     (strstr(p->device_uri, "/printers/") != NULL ||
@@ -4929,8 +5039,25 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
       * remote printer...
       */
 
-      ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_URI,
-		   "printer-uri-supported", NULL, p->device_uri);
+      if (strchr(p->device_uri, '?'))
+      {
+       /*
+	* Strip trailing "?options" from URI...
+	*/
+
+	char	resource[HTTP_MAX_URI],	/* New URI */
+		*ptr;			/* Pointer into URI */
+
+	strlcpy(resource, p->device_uri, sizeof(resource));
+	if ((ptr = strchr(resource, '?')) != NULL)
+	  *ptr = '\0';
+
+	ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_URI,
+		     "printer-uri-supported", NULL, resource);
+      }
+      else
+	ippAddString(p->attrs, IPP_TAG_PRINTER, IPP_TAG_URI,
+		     "printer-uri-supported", NULL, p->device_uri);
 
      /*
       * Then set the make-and-model accordingly...
@@ -4965,7 +5092,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
   ippAddInteger(p->ppd_attrs, IPP_TAG_PRINTER, IPP_TAG_ENUM,
 		"finishings-default", IPP_FINISHINGS_NONE);
 
-  if (ppd && (cache = cupsFileOpen(cache_name, "w9")) != NULL)
+  if (ppd && p->pc)
   {
    /*
     * Save cached PPD attributes to disk...
@@ -4973,20 +5100,7 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 
     cupsdLogMessage(CUPSD_LOG_DEBUG, "load_ppd: Saving %s...", cache_name);
 
-    p->ppd_attrs->state = IPP_IDLE;
-
-    if (ippWriteIO(cache, (ipp_iocb_t)cupsFileWrite, 1, NULL,
-                   p->ppd_attrs) != IPP_DATA)
-    {
-      cupsdLogMessage(CUPSD_LOG_ERROR,
-                      "Unable to save PPD cache file \"%s\" - %s", cache_name,
-		      strerror(errno));
-      unlink(cache_name);
-    }
-
-    cupsFileClose(cache);
-
-    _pwgWriteFile(p->pwg, pwg_name);
+    _ppdCacheWriteFile(p->pc, cache_name, p->ppd_attrs);
   }
   else
   {
@@ -4996,10 +5110,82 @@ load_ppd(cupsd_printer_t *p)		/* I - Printer */
 
     if (cache_info.st_mtime)
       unlink(cache_name);
-
-    if (pwg_info.st_mtime)
-      unlink(pwg_name);
   }
+}
+
+
+/*
+ * 'log_ipp_conformance()' - Log an IPP conformance issue with a printer.
+ */
+
+static void
+log_ipp_conformance(
+    cupsd_printer_t *p,			/* I - Printer */
+    const char      *reason)		/* I - Printer state reason */
+{
+  const char	*message;		/* Message to log */
+#ifdef __APPLE__
+  aslmsg	aslm;			/* Apple System Log message */
+#endif /* __APPLE__ */
+
+
+ /*
+  * Strip the leading "cups-ipp-" from the reason and create a log message for
+  * it...
+  */
+
+  reason += 9;
+  if (!strcmp(reason, "missing-cancel-job"))
+    message = "Printer does not support REQUIRED Cancel-Job operation.";
+  else if (!strcmp(reason, "missing-get-job-attributes"))
+    message = "Printer does not support REQUIRED Get-Job-Attributes operation.";
+  else if (!strcmp(reason, "missing-print-job"))
+    message = "Printer does not support REQUIRED Print-Job operation.";
+  else if (!strcmp(reason, "missing-validate-job"))
+    message = "Printer does not support REQUIRED Validate-Job operation.";
+  else if (!strcmp(reason, "missing-get-printer-attributes"))
+    message = "Printer does not support REQUIRED Get-Printer-Attributes operation.";
+  else if (!strcmp(reason, "missing-job-history"))
+    message = "Printer does not provide REQUIRED job history.";
+  else if (!strcmp(reason, "missing-job-id"))
+    message = "Printer does not provide REQUIRED job-id attribute.";
+  else if (!strcmp(reason, "missing-job-state"))
+    message = "Printer does not provide REQUIRED job-state attribute.";
+  else if (!strcmp(reason, "missing-operations-supported"))
+    message = "Printer does not provide REQUIRED operations-supported "
+              "attribute.";
+  else if (!strcmp(reason, "missing-printer-is-accepting-jobs"))
+    message = "Printer does not provide REQUIRED printer-is-accepting-jobs "
+              "attribute.";
+  else if (!strcmp(reason, "missing-printer-state-reasons"))
+    message = "Printer does not provide REQUIRED printer-state-reasons "
+              "attribute.";
+  else if (!strcmp(reason, "wrong-http-version"))
+    message = "Printer does not use REQUIRED HTTP/1.1 transport.";
+  else
+    message = "Unknown IPP conformance failure.";
+
+  cupsdLogMessage(CUPSD_LOG_WARN, "%s: %s", p->name, message);
+
+#ifdef __APPLE__
+ /*
+  * Report the failure information to Apple if the user opts into providing
+  * feedback to Apple...
+  */
+
+  aslm = asl_new(ASL_TYPE_MSG);
+  if (aslm)
+  {
+    asl_set(aslm, "com.apple.message.domain", "com.apple.printing.ipp.conformance");
+    asl_set(aslm, "com.apple.message.domain_scope", "com.apple.printing.ipp.conformance");
+    asl_set(aslm, "com.apple.message.signature", reason);
+    asl_set(aslm, "com.apple.message.signature2",
+	    p->make_model ? p->make_model : "Unknown");
+    asl_log(NULL, aslm, ASL_LEVEL_NOTICE, "%s: %s",
+            p->make_model ? p->make_model : "Unknown", message);
+    asl_free(aslm);
+  }
+#endif /* __APPLE__ */
 }
 
 
@@ -5342,5 +5528,5 @@ write_xml_string(cups_file_t *fp,	/* I - File to write to */
 
 
 /*
- * End of "$Id: printers.c 9124 2010-04-23 20:53:38Z mike $".
+ * End of "$Id: printers.c 10295 2012-02-15 23:21:06Z mike $".
  */
