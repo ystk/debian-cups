@@ -47,3 +47,4 @@ ubuntu-upstart.dpatch
 str3867.dpatch
 str3914.dpatch
 split-configuration-files-STR4223.dpatch
+translate_cups_files_manpage.dpatch
