@@ -1,0 +1,101 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## fix-insufficient-checking-when-allowing-files-download-from-the-webinterface.dpatch by Michael Sweet <msweet@apple.com>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Description: Fix-unsufficient permission checking when allowing files download
+## DP:  from the webinterface
+## DP: Author: Michael Sweet <msweet@apple.com>
+## DP: Bug: http://www.cups.org/str.php?L4455
+## DP: Bug-CVE: http://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-5029
+## DP: Bug-CVE: http://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-5030
+## DP: Bug-CVE: http://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-5031
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' cups~/scheduler/client.c cups/scheduler/client.c
+--- cups~/scheduler/client.c	2014-07-30 09:00:40.000000000 +0200
++++ cups/scheduler/client.c	2014-07-30 09:00:40.524819850 +0200
+@@ -3553,7 +3553,7 @@
+   * then fallback to the default one...
+   */
+ 
+-  if ((status = stat(filename, filestats)) != 0 && language[0] &&
++  if ((status = lstat(filename, filestats)) != 0 && language[0] &&
+       strncmp(con->uri, "/ppd/", 5) &&
+       strncmp(con->uri, "/admin/conf/", 12) &&
+       strncmp(con->uri, "/admin/log/", 11))
+@@ -3649,13 +3649,13 @@
+       plen = len - (ptr - filename);
+ 
+       strlcpy(ptr, "index.html", plen);
+-      status = stat(filename, filestats);
++      status = lstat(filename, filestats);
+ 
+ #ifdef HAVE_JAVA
+       if (status)
+       {
+ 	strlcpy(ptr, "index.class", plen);
+-	status = stat(filename, filestats);
++	status = lstat(filename, filestats);
+       }
+ #endif /* HAVE_JAVA */
+ 
+@@ -3663,7 +3663,7 @@
+       if (status)
+       {
+ 	strlcpy(ptr, "index.pl", plen);
+-	status = stat(filename, filestats);
++	status = lstat(filename, filestats);
+       }
+ #endif /* HAVE_PERL */
+ 
+@@ -3671,7 +3671,7 @@
+       if (status)
+       {
+ 	strlcpy(ptr, "index.php", plen);
+-	status = stat(filename, filestats);
++	status = lstat(filename, filestats);
+       }
+ #endif /* HAVE_PHP */
+ 
+@@ -3679,18 +3679,39 @@
+       if (status)
+       {
+ 	strlcpy(ptr, "index.pyc", plen);
+-	status = stat(filename, filestats);
++	status = lstat(filename, filestats);
+       }
+ 
+       if (status)
+       {
+ 	strlcpy(ptr, "index.py", plen);
+-	status = stat(filename, filestats);
++	status = lstat(filename, filestats);
+       }
+ #endif /* HAVE_PYTHON */
+ 
+     }
+     while (status && language[0]);
++
++   /*
++    * If we've found a symlink, 404 the sucker to avoid disclosing information.
++    */
++
++    if (!status && S_ISLNK(filestats->st_mode))
++    {
++      cupsdLogMessage(CUPSD_LOG_INFO, "[Client %d] Symlinks such as \"%s\" are not allowed.", con->http.fd, filename);
++      return (NULL);
++    }
++
++   /*
++    * Similarly, if the file/directory does not have world read permissions, do
++    * not allow access...
++    */
++
++    if (!status && !(filestats->st_mode & S_IROTH))
++    {
++      cupsdLogMessage(CUPSD_LOG_INFO, "[Client %d] Files/directories such as \"%s\" must be world-readable.", con->http.fd, filename);
++      return (NULL);
++    }
+   }
+ 
+   cupsdLogMessage(CUPSD_LOG_DEBUG2,

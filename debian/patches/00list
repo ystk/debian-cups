@@ -1,4 +1,9 @@
-# patches backported from upstream SVN trunk for 1.5:
+# patches backported from upstream SVN trunk for 1.7:
+fix-insufficient-checking-leading-to-privilege-escalation-str4450.dpatch
+fix-insufficient-checking-when-allowing-files-download-from-the-webinterface.dpatch
+
+# patches backported from upstream SVN trunk for 1.6:
+fix-xss-in-cups-webinterface-str43576.dpatch
 
 # patches accepted and committed upstream for next 1.4:
 CVE-2010-2941.dpatch

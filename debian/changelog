@@ -1,3 +1,20 @@
+cups (1.4.4-7+squeeze6) squeeze-lts; urgency=medium
+
+  * Backport upstream patches to fix:
+    - insufficient checking when allowing files download from the webinterface
+      (STR #4455), fixes CVE-2014-5029, CVE-2014-5030 and CVE-2014-5031
+    - privilege escalation through the CUPS webinterface (STR #4450), fixes
+      CVE-2014-3537.
+
+ -- Didier Raboud <odyx@debian.org>  Wed, 30 Jul 2014 09:02:13 +0200
+
+cups (1.4.4-7+squeeze5) oldstable; urgency=low
+
+  * Import upstream patch to fix XSS in the CUPS webinterface (STR #4356),
+    fixes CVE-2014-2856
+
+ -- Didier Raboud <odyx@debian.org>  Sat, 03 May 2014 15:43:50 +0200
+
 cups (1.4.4-7+squeeze4) oldstable-security; urgency=high
 
   * Backport security fix from cups-filters 1.0.47:
