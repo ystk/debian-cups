@@ -1,9 +1,9 @@
 #
-# "$Id: Makefile 10317 2012-03-01 00:05:55Z mike $"
+# "$Id: Makefile 11129 2013-07-11 20:39:46Z msweet $"
 #
 #   IPP test makefile for CUPS.
 #
-#   Copyright 2007-2010 by Apple Inc.
+#   Copyright 2007-2013 by Apple Inc.
 #   Copyright 1997-2006 by Easy Software Products, all rights reserved.
 #
 #   These coded instructions, statements, and computer programs are the
@@ -32,6 +32,7 @@ DATAFILES	=	\
 			onepage-letter.pdf \
 			onepage-letter.ps \
 			testfile.jpg \
+			testfile.pcl \
 			testfile.pdf \
 			testfile.ps \
 			testfile.txt
@@ -39,15 +40,25 @@ TESTFILES	=	\
 			create-printer-subscription.test \
 			get-completed-jobs.test \
 			get-jobs.test \
+			get-notifications.test \
 			get-printer-attributes.test \
+			get-subscriptions.test \
 			ipp-1.1.test \
 			ipp-2.0.test \
 			ipp-2.1.test \
-			ipp-2.2.test
+			ipp-2.2.test \
+			ipp-everywhere.test \
+			print-job.test \
+			print-job-deflate.test \
+			print-job-gzip.test \
+			validate-job.test
 OBJS		=	\
+			ippfind.o \
 			ippserver.o \
-			ipptool.o
+			ipptool.o \
+			xmltotest.o
 TARGETS		=	\
+			$(IPPFIND_BIN) \
 			ippserver \
 			ipptool \
 			ipptool-static
@@ -87,7 +98,7 @@ clean:
 #
 
 depend:
-	makedepend -Y -I.. -fDependencies $(OBJS:.o=.c) >/dev/null 2>&1
+	$(CC) -MM $(ALL_CFLAGS) $(OBJS:.o=.c) >Dependencies
 
 
 #
@@ -120,9 +131,15 @@ install-exec:
 	echo Installing ipptool in $(BINDIR)...
 	$(INSTALL_DIR) -m 755 $(BINDIR)
 	$(INSTALL_BIN) ipptool $(BINDIR)
+	if test -x ippfind; then \
+		$(INSTALL_BIN) ippfind $(BINDIR); \
+	fi
 	if test "x$(SYMROOT)" != "x"; then \
 		$(INSTALL_DIR) $(SYMROOT); \
+		cp ippfind $(SYMROOT); \
+		dsymutil $(SYMROOT)/ippfind; \
 		cp ipptool $(SYMROOT); \
+		dsymutil $(SYMROOT)/ipptool; \
 	fi
 
 
@@ -153,6 +170,18 @@ uninstall:
 		$(RM) $(DATADIR)/ipptool/$$file; \
 	done
 	-$(RMDIR) $(DATADIR)/ipptool
+
+
+#
+# ippfind
+#
+
+ippfind:	ippfind.o ../cups/$(LIBCUPS) ../cups/$(LIBCUPSSTATIC)
+	echo Linking $@...
+	$(CC) $(LDFLAGS) -o $@ ippfind.o $(LIBS)
+	echo Linking $@-static...
+	$(CC) $(LDFLAGS) -o $@-static ippfind.o  ../cups/$(LIBCUPSSTATIC) \
+		$(LIBGSSAPI) $(SSLLIBS) $(DNSSDLIBS) $(COMMONLIBS) $(LIBZ)
 
 
 #
@@ -194,6 +223,17 @@ ipptool-static:	ipptool.o ../cups/$(LIBCUPSSTATIC)
 
 
 #
+# xmltotest
+#
+
+xmltotest: xmltotest.o ../cups/$(LIBUPSSTATIC)
+	echo Linking $@...
+	$(CC) $(LDFLAGS) -o $@ xmltotest.o  ../cups/$(LIBCUPSSTATIC) \
+		$(LIBGSSAPI) $(SSLLIBS) $(DNSSDLIBS) $(COMMONLIBS) $(LIBZ) \
+		$(LIBMXML)
+
+
+#
 # Dependencies...
 #
 
@@ -201,5 +241,5 @@ include Dependencies
 
 
 #
-# End of "$Id: Makefile 10317 2012-03-01 00:05:55Z mike $".
+# End of "$Id: Makefile 11129 2013-07-11 20:39:46Z msweet $".
 #

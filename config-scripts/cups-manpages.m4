@@ -1,9 +1,9 @@
 dnl
-dnl "$Id: cups-manpages.m4 9771 2011-05-12 05:21:56Z mike $"
+dnl "$Id: cups-manpages.m4 6649 2007-07-11 21:46:42Z mike $"
 dnl
 dnl   Manpage stuff for CUPS.
 dnl
-dnl   Copyright 2007-2011 by Apple Inc.
+dnl   Copyright 2007-2012 by Apple Inc.
 dnl   Copyright 1997-2006 by Easy Software Products, all rights reserved.
 dnl
 dnl   These coded instructions, statements, and computer programs are the
@@ -28,12 +28,6 @@ if test "$mandir" = "\${prefix}/man" -a "$prefix" = "/"; then
         		AMANDIR="/usr/share/man"
         		PMANDIR="/usr/share/man"
         		;;
-        	IRIX)
-        		# SGI IRIX
-        		mandir="/usr/share/catman/u_man"
-        		AMANDIR="/usr/share/catman/a_man"
-        		PMANDIR="/usr/share/catman/p_man"
-        		;;
         	*)
         		# All others
         		mandir="/usr/man"
@@ -51,14 +45,6 @@ AC_SUBST(PMANDIR)
 
 dnl Setup manpage extensions...
 case "$uname" in
-	IRIX*)
-		# SGI IRIX
-		MAN1EXT=1
-		MAN5EXT=5
-		MAN7EXT=7
-		MAN8EXT=1m
-		MAN8DIR=1
-		;;
 	SunOS* | HP-UX*)
 		# Solaris and HP-UX
 		MAN1EXT=1
@@ -68,7 +54,7 @@ case "$uname" in
 		MAN8DIR=1m
 		;;
 	Linux* | GNU* | Darwin*)
-		# Linux, GNU Hurd, and Mac OS X
+		# Linux, GNU Hurd, and OS X
 		MAN1EXT=1.gz
 		MAN5EXT=5.gz
 		MAN7EXT=7.gz
@@ -92,5 +78,5 @@ AC_SUBST(MAN8EXT)
 AC_SUBST(MAN8DIR)
 
 dnl
-dnl End of "$Id: cups-manpages.m4 9771 2011-05-12 05:21:56Z mike $".
+dnl End of "$Id: cups-manpages.m4 6649 2007-07-11 21:46:42Z mike $".
 dnl

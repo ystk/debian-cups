@@ -1,5 +1,5 @@
 #
-# "$Id: Makefile 9771 2011-05-12 05:21:56Z mike $"
+# "$Id: Makefile 4216 2013-03-11 13:57:36Z msweet $"
 #
 #   Template makefile for CUPS.
 #
@@ -149,11 +149,12 @@ install-languages:
 		if test -d $$lang; then \
 			$(INSTALL_DIR) -m 755 $(DATADIR)/templates/$$lang; \
 			for file in $(FILES); do \
-				$(INSTALL_DATA) $$lang/$$file $(DATADIR)/templates/$$lang 2>/dev/null || true; \
+				$(INSTALL_DATA) $$lang/$$file $(DATADIR)/templates/$$lang >/dev/null 2>&1 || true; \
 			done \
 		fi \
 	done
 
+install-langbundle:
 
 
 #
@@ -195,7 +196,9 @@ uninstall-languages:
 		$(RMDIR) $(DATADIR)/templates/$$lang; \
 	done
 
+uninstall-langbundle:
+
 
 #
-# End of "$Id: Makefile 9771 2011-05-12 05:21:56Z mike $".
+# End of "$Id: Makefile 4216 2013-03-11 13:57:36Z msweet $".
 #

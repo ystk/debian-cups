@@ -1,39 +1,29 @@
-Description: Add-on to cups-avahi.patch to support Apple AirPrint (printing from iPhone, iPad, iPod Touch to a CUPS server), patch is separate as this part is not in the upstream repository of cups-avahi.patch because it is not intencded to be submitted to CUPS upstream.
+Description: Patch to support Apple AirPrint (printing from iPhone, iPad, iPod Touch to a CUPS server)
 Author: Till Kamppeter <till.kamppeter@gmail.com>
-Bug: https://bugs.launchpad.net/bugs/711779
-Bug: https://bugs.launchpad.net/bugs/1054495
+Bug-Ubuntu: https://bugs.launchpad.net/bugs/711779
+Bug-Ubuntu: https://bugs.launchpad.net/bugs/1054495
 Bug-Debian: http://bugs.debian.org/700961
+Bug: https://cups.org/str.php?L4341
 Last-Update: 2013-02-20
 
---- a/scheduler/conf.c
-+++ b/scheduler/conf.c
-@@ -659,7 +659,7 @@
-   DefaultShared            = CUPS_DEFAULT_DEFAULT_SHARED;
- 
- #if defined(HAVE_DNSSD) || defined(HAVE_AVAHI)
--  cupsdSetString(&DNSSDRegType, "_ipp._tcp,_cups");
-+  cupsdSetString(&DNSSDRegType, "_ipp._tcp,_cups,_universal");
- #endif /* HAVE_DNSSD */
- 
-   cupsdSetString(&LPDConfigFile, CUPS_DEFAULT_LPD_CONFIG_FILE);
 --- a/scheduler/dirsvc.c
 +++ b/scheduler/dirsvc.c
-@@ -2522,6 +2522,12 @@
-   keyvalue[i  ][0] = "pdl";
-   keyvalue[i++][1] = p->pdl ? p->pdl : "application/postscript";
+@@ -416,6 +416,12 @@
+     keyvalue[count  ][0] = "pdl";
+     keyvalue[count++][1] = p->pdl ? p->pdl : "application/postscript";
  
-+  /* iOS 6 does not accept this printer as AirPrint printer if there is
-+     no URF txt record or "URF=none", "DM3" is the minimum needed found
-+     by try and error */
-+  keyvalue[i  ][0] = "URF";
-+  keyvalue[i++][1] = "DM3";
++    /* iOS 6 does not accept this printer as AirPrint printer if there is
++       no URF txt record or "URF=none", "DM3" is the minimum needed found
++       by try and error */
++    keyvalue[count  ][0] = "URF";
++    keyvalue[count++][1] = "DM3";
 +
-   if (get_auth_info_required(p, air_str, sizeof(air_str)))
-   {
-     keyvalue[i  ][0] = "air";
+     if (get_auth_info_required(p, air_str, sizeof(air_str)))
+     {
+       keyvalue[count  ][0] = "air";
 --- a/conf/mime.convs.in
 +++ b/conf/mime.convs.in
-@@ -86,6 +86,9 @@
+@@ -48,6 +48,9 @@
  # PWG Raster filter for IPP Everywhere...
  application/vnd.cups-raster	image/pwg-raster		100	rastertopwg
  
@@ -57,7 +47,7 @@ Last-Update: 2013-02-20
  # Text files...
 --- a/scheduler/printers.c
 +++ b/scheduler/printers.c
-@@ -3908,7 +3908,9 @@
+@@ -3613,7 +3613,9 @@
        }
        else if (!_cups_strcasecmp(type->super, "image"))
        {
@@ -68,3 +58,14 @@ Last-Update: 2013-02-20
  	  strlcat(pdl, "image/jpeg,", sizeof(pdl));
  	else if (!_cups_strcasecmp(type->type, "png"))
  	  strlcat(pdl, "image/png,", sizeof(pdl));
+--- a/scheduler/conf.c
++++ b/scheduler/conf.c
+@@ -723,7 +723,7 @@
+   DefaultShared            = CUPS_DEFAULT_DEFAULT_SHARED;
+ 
+ #if defined(HAVE_DNSSD) || defined(HAVE_AVAHI)
+-  cupsdSetString(&DNSSDSubTypes, "_cups,_print");
++  cupsdSetString(&DNSSDSubTypes, "_cups,_print,_universal");
+ #endif /* HAVE_DNSSD || HAVE_AVAHI */
+ 
+   cupsdSetString(&LPDConfigFile, CUPS_DEFAULT_LPD_CONFIG_FILE);

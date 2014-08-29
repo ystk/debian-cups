@@ -1,5 +1,5 @@
 /*
- * "$Id: snmp.c 9793 2011-05-20 03:49:49Z mike $"
+ * "$Id: snmp.c 4167 2013-02-04 19:27:13Z msweet $"
  *
  *   SNMP functions for CUPS.
  *
@@ -61,7 +61,7 @@
 #include "cups-private.h"
 #include "snmp-private.h"
 #ifdef HAVE_POLL
-#  include <sys/poll.h>
+#  include <poll.h>
 #endif /* HAVE_POLL */
 
 
@@ -362,11 +362,7 @@ _cupsSNMPOpen(int family)		/* I - Address family - @code AF_INET@ or @code AF_IN
 
   val = 1;
 
-#ifdef WIN32
-  if (setsockopt(fd, SOL_SOCKET, SO_BROADCAST, (char *)&val, sizeof(val)))
-#else
-  if (setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &val, sizeof(val)))
-#endif /* WIN32 */
+  if (setsockopt(fd, SOL_SOCKET, SO_BROADCAST, CUPS_SOCAST &val, sizeof(val)))
   {
     DEBUG_printf(("5_cupsSNMPOpen: Returning -1 (%s)", strerror(errno)));
 
@@ -1085,7 +1081,7 @@ asn1_decode_snmp(unsigned char *buffer,	/* I - Buffer */
 		    packet->object_value.string.num_bytes = length;
 		    asn1_get_string(&bufptr, bufend, length,
 		                    (char *)packet->object_value.string.bytes,
-				    CUPS_SNMP_MAX_STRING);
+				    sizeof(packet->object_value.string.bytes));
 	            break;
 
 	        case CUPS_ASN1_OID :
@@ -1733,5 +1729,5 @@ snmp_set_error(cups_snmp_t *packet,	/* I - Packet */
 
 
 /*
- * End of "$Id: snmp.c 9793 2011-05-20 03:49:49Z mike $".
+ * End of "$Id: snmp.c 4167 2013-02-04 19:27:13Z msweet $".
  */

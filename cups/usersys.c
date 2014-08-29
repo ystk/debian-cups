@@ -1,39 +1,18 @@
 /*
- * "$Id: usersys.c 9969 2011-09-07 22:32:14Z mike $"
+ * "$Id: usersys.c 11909 2014-06-09 18:58:16Z msweet $"
  *
- *   User, system, and password routines for CUPS.
+ * User, system, and password routines for CUPS.
  *
- *   Copyright 2007-2011 by Apple Inc.
- *   Copyright 1997-2006 by Easy Software Products.
+ * Copyright 2007-2014 by Apple Inc.
+ * Copyright 1997-2006 by Easy Software Products.
  *
- *   These coded instructions, statements, and computer programs are the
- *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
+ * These coded instructions, statements, and computer programs are the
+ * property of Apple Inc. and are protected by Federal copyright
+ * law.  Distribution and use rights are outlined in the file "LICENSE.txt"
+ * which should have been included with this file.  If this file is
+ * file is missing or damaged, see the license at "http://www.cups.org/".
  *
- *   This file is subject to the Apple OS-Developed Software exception.
- *
- * Contents:
- *
- *   cupsEncryption()        - Get the current encryption settings.
- *   cupsGetPassword()       - Get a password from the user.
- *   cupsGetPassword2()      - Get a password from the user using the advanced
- *                             password callback.
- *   cupsServer()            - Return the hostname/address of the current
- *                             server.
- *   cupsSetClientCertCB()   - Set the client certificate callback.
- *   cupsSetEncryption()     - Set the encryption preference.
- *   cupsSetPasswordCB()     - Set the password callback for CUPS.
- *   cupsSetPasswordCB2()    - Set the advanced password callback for CUPS.
- *   cupsSetServer()         - Set the default server name and port.
- *   cupsSetServerCertCB()   - Set the server certificate callback.
- *   cupsSetUser()           - Set the default user name.
- *   cupsUser()              - Return the current user's name.
- *   _cupsGetPassword()      - Get a password from the user.
- *   _cupsGSSServiceName()   - Get the GSS (Kerberos) service name.
- *   _cupsSetDefaults()      - Set the default server, port, and encryption.
- *   cups_read_client_conf() - Read a client.conf file.
+ * This file is subject to the Apple OS-Developed Software exception.
  */
 
 /*
@@ -47,7 +26,16 @@
 #  include <windows.h>
 #else
 #  include <pwd.h>
+#  include <termios.h>
+#  include <sys/utsname.h>
 #endif /* WIN32 */
+
+
+/*
+ * Local constants...
+ */
+
+#define _CUPS_PASSCHAR	'*'		/* Character that is echoed for password */
 
 
 /*
@@ -58,6 +46,7 @@ static void	cups_read_client_conf(cups_file_t *fp,
 		                      _cups_globals_t *cg,
 		                      const char *cups_encryption,
 				      const char *cups_server,
+				      const char *cups_user,
 #ifdef HAVE_GSSAPI
                                       const char *cups_gssservicename,
 #endif /* HAVE_GSSAPI */
@@ -72,7 +61,7 @@ static void	cups_read_client_conf(cups_file_t *fp,
  * The default encryption setting comes from the CUPS_ENCRYPTION
  * environment variable, then the ~/.cups/client.conf file, and finally the
  * /etc/cups/client.conf file. If not set, the default is
- * @code HTTP_ENCRYPT_IF_REQUESTED@.
+ * @code HTTP_ENCRYPTION_IF_REQUESTED@.
  *
  * Note: The current encryption setting is tracked separately for each thread
  * in a program. Multi-threaded programs that override the setting via the
@@ -127,7 +116,7 @@ cupsGetPassword(const char *prompt)	/* I - Prompt string */
  * the @link cupsSetPasswordCB@ or @link cupsSetPasswordCB2@ functions need to
  * do so in each thread for the same function to be used.
  *
- * @since CUPS 1.4/Mac OS X 10.6@
+ * @since CUPS 1.4/OS X 10.6@
  */
 
 const char *				/* O - Password */
@@ -185,7 +174,7 @@ cupsServer(void)
  * in a program. Multi-threaded programs that override the callback need to do
  * so in each thread for the same callback to be used.
  *
- * @since CUPS 1.5/Mac OS X 10.7@
+ * @since CUPS 1.5/OS X 10.7@
  */
 
 void
@@ -209,7 +198,7 @@ cupsSetClientCertCB(
  * program. Multi-threaded programs that override the setting need to do so in
  * each thread for the same setting to be used.
  *
- * @since CUPS 1.5/Mac OS X 10.7@
+ * @since CUPS 1.5/OS X 10.7@
  */
 
 int					/* O - Status of call (0 = success) */
@@ -235,7 +224,7 @@ cupsSetCredentials(
  * The default encryption setting comes from the CUPS_ENCRYPTION
  * environment variable, then the ~/.cups/client.conf file, and finally the
  * /etc/cups/client.conf file. If not set, the default is
- * @code HTTP_ENCRYPT_IF_REQUESTED@.
+ * @code HTTP_ENCRYPTION_IF_REQUESTED@.
  *
  * Note: The current encryption setting is tracked separately for each thread
  * in a program. Multi-threaded programs that override the setting need to do
@@ -295,7 +284,7 @@ cupsSetPasswordCB(cups_password_cb_t cb)/* I - Callback function */
  * in a program. Multi-threaded programs that override the callback need to do
  * so in each thread for the same callback to be used.
  *
- * @since CUPS 1.4/Mac OS X 10.6@
+ * @since CUPS 1.4/OS X 10.6@
  */
 
 void
@@ -332,13 +321,32 @@ cupsSetPasswordCB2(
 void
 cupsSetServer(const char *server)	/* I - Server name */
 {
-  char		*port;			/* Pointer to port */
+  char		*options,		/* Options */
+		*port;			/* Pointer to port */
   _cups_globals_t *cg = _cupsGlobals();	/* Pointer to library globals */
 
 
   if (server)
   {
     strlcpy(cg->server, server, sizeof(cg->server));
+
+    if (cg->server[0] != '/' && (options = strrchr(cg->server, '/')) != NULL)
+    {
+      *options++ = '\0';
+
+      if (!strcmp(options, "version=1.0"))
+        cg->server_version = 10;
+      else if (!strcmp(options, "version=1.1"))
+        cg->server_version = 11;
+      else if (!strcmp(options, "version=2.0"))
+        cg->server_version = 20;
+      else if (!strcmp(options, "version=2.1"))
+        cg->server_version = 21;
+      else if (!strcmp(options, "version=2.2"))
+        cg->server_version = 22;
+    }
+    else
+      cg->server_version = 20;
 
     if (cg->server[0] != '/' && (port = strrchr(cg->server, ':')) != NULL &&
         !strchr(port, ']') && isdigit(port[1] & 255))
@@ -349,14 +357,15 @@ cupsSetServer(const char *server)	/* I - Server name */
     }
 
     if (cg->server[0] == '/')
-      strcpy(cg->servername, "localhost");
+      strlcpy(cg->servername, "localhost", sizeof(cg->servername));
     else
       strlcpy(cg->servername, cg->server, sizeof(cg->servername));
   }
   else
   {
-    cg->server[0]     = '\0';
-    cg->servername[0] = '\0';
+    cg->server[0]      = '\0';
+    cg->servername[0]  = '\0';
+    cg->server_version = 20;
   }
 
   if (cg->http)
@@ -376,7 +385,7 @@ cupsSetServer(const char *server)	/* I - Server name */
  * in a program. Multi-threaded programs that override the callback need to do
  * so in each thread for the same callback to be used.
  *
- * @since CUPS 1.5/Mac OS X 10.7@
+ * @since CUPS 1.5/OS X 10.7@
  */
 
 void
@@ -416,6 +425,62 @@ cupsSetUser(const char *user)		/* I - User name */
 
 
 /*
+ * 'cupsSetUserAgent()' - Set the default HTTP User-Agent string.
+ *
+ * Setting the string to NULL forces the default value containing the CUPS
+ * version, IPP version, and operating system version and architecture.
+ *
+ * @since CUPS 1.7/OS X 10.9@
+ */
+
+void
+cupsSetUserAgent(const char *user_agent)/* I - User-Agent string or @code NULL@ */
+{
+  _cups_globals_t	*cg = _cupsGlobals();
+					/* Thread globals */
+#ifdef WIN32
+  SYSTEM_INFO		sysinfo;	/* System information */
+  OSVERSIONINFO		version;	/* OS version info */
+#else
+  struct utsname	name;		/* uname info */
+#endif /* WIN32 */
+
+
+  if (user_agent)
+  {
+    strlcpy(cg->user_agent, user_agent, sizeof(cg->user_agent));
+    return;
+  }
+
+#ifdef WIN32
+  version.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+  GetVersionEx(&version);
+  GetNativeSystemInfo(&sysinfo);
+
+  snprintf(cg->user_agent, sizeof(cg->user_agent),
+           CUPS_MINIMAL " (Windows %d.%d; %s) IPP/2.0",
+	   version.dwMajorVersion, version.dwMinorVersion,
+	   sysinfo.wProcessorArchitecture
+	       == PROCESSOR_ARCHITECTURE_AMD64 ? "amd64" :
+	       sysinfo.wProcessorArchitecture
+		   == PROCESSOR_ARCHITECTURE_ARM ? "arm" :
+	       sysinfo.wProcessorArchitecture
+		   == PROCESSOR_ARCHITECTURE_IA64 ? "ia64" :
+	       sysinfo.wProcessorArchitecture
+		   == PROCESSOR_ARCHITECTURE_INTEL ? "intel" :
+	       "unknown");
+
+#else
+  uname(&name);
+
+  snprintf(cg->user_agent, sizeof(cg->user_agent),
+           CUPS_MINIMAL " (%s %s; %s) IPP/2.0",
+	   name.sysname, name.release, name.machine);
+#endif /* WIN32 */
+}
+
+
+/*
  * 'cupsUser()' - Return the current user's name.
  *
  * Note: The current user name is tracked separately for each thread in a
@@ -427,57 +492,32 @@ cupsSetUser(const char *user)		/* I - User name */
 const char *				/* O - User name */
 cupsUser(void)
 {
-  const char	*user;			/* USER environment variable */
   _cups_globals_t *cg = _cupsGlobals();	/* Pointer to library globals */
 
 
   if (!cg->user[0])
-  {
-#ifdef WIN32
-   /*
-    * Get the current user name from the OS...
-    */
-
-    DWORD	size;			/* Size of string */
-
-    size = sizeof(cg->user);
-    if (!GetUserName(cg->user, &size))
-#else
-   /*
-    * Get the user name corresponding to the current UID...
-    */
-
-    struct passwd	*pwd;		/* User/password entry */
-
-    setpwent();
-    if ((pwd = getpwuid(getuid())) != NULL)
-    {
-     /*
-      * Found a match!
-      */
-
-      strlcpy(cg->user, pwd->pw_name, sizeof(cg->user));
-    }
-    else
-#endif /* WIN32 */
-    if ((user = getenv("USER")) != NULL)
-    {
-     /*
-      * Use the username from the "USER" environment variable...
-      */
-      strlcpy(cg->user, user, sizeof(cg->user));
-    }
-    else
-    {
-     /*
-      * Use the default "unknown" user name...
-      */
-
-      strcpy(cg->user, "unknown");
-    }
-  }
+    _cupsSetDefaults();
 
   return (cg->user);
+}
+
+
+/*
+ * 'cupsUserAgent()' - Return the default HTTP User-Agent string.
+ *
+ * @since CUPS 1.7/OS X 10.9@
+ */
+
+const char *				/* O - User-Agent string */
+cupsUserAgent(void)
+{
+  _cups_globals_t *cg = _cupsGlobals();	/* Thread globals */
+
+
+  if (!cg->user_agent[0])
+    cupsSetUserAgent(NULL);
+
+  return (cg->user_agent);
 }
 
 
@@ -485,29 +525,273 @@ cupsUser(void)
  * '_cupsGetPassword()' - Get a password from the user.
  */
 
-const char *				/* O - Password */
+const char *				/* O - Password or @code NULL@ if none */
 _cupsGetPassword(const char *prompt)	/* I - Prompt string */
 {
 #ifdef WIN32
+  HANDLE		tty;		/* Console handle */
+  DWORD			mode;		/* Console mode */
+  char			passch,		/* Current key press */
+			*passptr,	/* Pointer into password string */
+			*passend;	/* End of password string */
+  DWORD			passbytes;	/* Bytes read */
+  _cups_globals_t	*cg = _cupsGlobals();
+					/* Thread globals */
+
+
  /*
-  * Currently no console password support is provided on Windows.
+  * Disable input echo and set raw input...
   */
 
-  return (NULL);
+  if ((tty = GetStdHandle(STD_INPUT_HANDLE)) == INVALID_HANDLE_VALUE)
+    return (NULL);
+
+  if (!GetConsoleMode(tty, &mode))
+    return (NULL);
+
+  if (!SetConsoleMode(tty, 0))
+    return (NULL);
+
+ /*
+  * Display the prompt...
+  */
+
+  printf("%s ", prompt);
+  fflush(stdout);
+
+ /*
+  * Read the password string from /dev/tty until we get interrupted or get a
+  * carriage return or newline...
+  */
+
+  passptr = cg->password;
+  passend = cg->password + sizeof(cg->password) - 1;
+
+  while (ReadFile(tty, &passch, 1, &passbytes, NULL))
+  {
+    if (passch == 0x0A || passch == 0x0D)
+    {
+     /*
+      * Enter/return...
+      */
+
+      break;
+    }
+    else if (passch == 0x08 || passch == 0x7F)
+    {
+     /*
+      * Backspace/delete (erase character)...
+      */
+
+      if (passptr > cg->password)
+      {
+        passptr --;
+        fputs("\010 \010", stdout);
+      }
+      else
+        putchar(0x07);
+    }
+    else if (passch == 0x15)
+    {
+     /*
+      * CTRL+U (erase line)
+      */
+
+      if (passptr > cg->password)
+      {
+	while (passptr > cg->password)
+	{
+          passptr --;
+          fputs("\010 \010", stdout);
+        }
+      }
+      else
+        putchar(0x07);
+    }
+    else if (passch == 0x03)
+    {
+     /*
+      * CTRL+C...
+      */
+
+      passptr = cg->password;
+      break;
+    }
+    else if ((passch & 255) < 0x20 || passptr >= passend)
+      putchar(0x07);
+    else
+    {
+      *passptr++ = passch;
+      putchar(_CUPS_PASSCHAR);
+    }
+
+    fflush(stdout);
+  }
+
+  putchar('\n');
+  fflush(stdout);
+
+ /*
+  * Cleanup...
+  */
+
+  SetConsoleMode(tty, mode);
+
+ /*
+  * Return the proper value...
+  */
+
+  if (passbytes == 1 && passptr > cg->password)
+  {
+    *passptr = '\0';
+    return (cg->password);
+  }
+  else
+  {
+    memset(cg->password, 0, sizeof(cg->password));
+    return (NULL);
+  }
 
 #else
+  int			tty;		/* /dev/tty - never read from stdin */
+  struct termios	original,	/* Original input mode */
+			noecho;		/* No echo input mode */
+  char			passch,		/* Current key press */
+			*passptr,	/* Pointer into password string */
+			*passend;	/* End of password string */
+  ssize_t		passbytes;	/* Bytes read */
+  _cups_globals_t	*cg = _cupsGlobals();
+					/* Thread globals */
+
+
  /*
-  * Use the standard getpass function to get a password from the console.  An
-  * empty password is treated as canceling the authentication request.
+  * Disable input echo and set raw input...
   */
 
-  const char	*password = getpass(prompt);
-					/* Password string */
-
-  if (!password || !password[0])
+  if ((tty = open("/dev/tty", O_RDONLY)) < 0)
     return (NULL);
+
+  if (tcgetattr(tty, &original))
+  {
+    close(tty);
+    return (NULL);
+  }
+
+  noecho = original;
+  noecho.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+
+  if (tcsetattr(tty, TCSAFLUSH, &noecho))
+  {
+    close(tty);
+    return (NULL);
+  }
+
+ /*
+  * Display the prompt...
+  */
+
+  printf("%s ", prompt);
+  fflush(stdout);
+
+ /*
+  * Read the password string from /dev/tty until we get interrupted or get a
+  * carriage return or newline...
+  */
+
+  passptr = cg->password;
+  passend = cg->password + sizeof(cg->password) - 1;
+
+  while ((passbytes = read(tty, &passch, 1)) == 1)
+  {
+    if (passch == noecho.c_cc[VEOL] ||
+#  ifdef VEOL2
+        passch == noecho.c_cc[VEOL2] ||
+#  endif /* VEOL2 */
+        passch == 0x0A || passch == 0x0D)
+    {
+     /*
+      * Enter/return...
+      */
+
+      break;
+    }
+    else if (passch == noecho.c_cc[VERASE] ||
+             passch == 0x08 || passch == 0x7F)
+    {
+     /*
+      * Backspace/delete (erase character)...
+      */
+
+      if (passptr > cg->password)
+      {
+        passptr --;
+        fputs("\010 \010", stdout);
+      }
+      else
+        putchar(0x07);
+    }
+    else if (passch == noecho.c_cc[VKILL])
+    {
+     /*
+      * CTRL+U (erase line)
+      */
+
+      if (passptr > cg->password)
+      {
+	while (passptr > cg->password)
+	{
+          passptr --;
+          fputs("\010 \010", stdout);
+        }
+      }
+      else
+        putchar(0x07);
+    }
+    else if (passch == noecho.c_cc[VINTR] || passch == noecho.c_cc[VQUIT] ||
+             passch == noecho.c_cc[VEOF])
+    {
+     /*
+      * CTRL+C, CTRL+D, or CTRL+Z...
+      */
+
+      passptr = cg->password;
+      break;
+    }
+    else if ((passch & 255) < 0x20 || passptr >= passend)
+      putchar(0x07);
+    else
+    {
+      *passptr++ = passch;
+      putchar(_CUPS_PASSCHAR);
+    }
+
+    fflush(stdout);
+  }
+
+  putchar('\n');
+  fflush(stdout);
+
+ /*
+  * Cleanup...
+  */
+
+  tcsetattr(tty, TCSAFLUSH, &original);
+  close(tty);
+
+ /*
+  * Return the proper value...
+  */
+
+  if (passbytes == 1 && passptr > cg->password)
+  {
+    *passptr = '\0';
+    return (cg->password);
+  }
   else
-    return (password);
+  {
+    memset(cg->password, 0, sizeof(cg->password));
+    return (NULL);
+  }
 #endif /* WIN32 */
 }
 
@@ -542,6 +826,7 @@ _cupsSetDefaults(void)
   const char	*home,			/* Home directory of user */
 		*cups_encryption,	/* CUPS_ENCRYPTION env var */
 		*cups_server,		/* CUPS_SERVER env var */
+		*cups_user,		/* CUPS_USER/USER env var */
 #ifdef HAVE_GSSAPI
 		*cups_gssservicename,	/* CUPS_GSSSERVICENAME env var */
 #endif /* HAVE_GSSAPI */
@@ -566,6 +851,7 @@ _cupsSetDefaults(void)
   cups_anyroot	      = getenv("CUPS_ANYROOT");
   cups_expiredroot    = getenv("CUPS_EXPIREDROOT");
   cups_expiredcerts   = getenv("CUPS_EXPIREDCERTS");
+  cups_user           = getenv("CUPS_USER");
 
  /*
   * Then, if needed, read the ~/.cups/client.conf or /etc/cups/client.conf
@@ -573,9 +859,15 @@ _cupsSetDefaults(void)
   */
 
   if (cg->encryption == (http_encryption_t)-1 || !cg->server[0] ||
-      !cg->ipp_port)
+      !cg->user[0] || !cg->ipp_port)
   {
+#  ifdef HAVE_GETEUID
+    if ((geteuid() == getuid() || !getuid()) && getegid() == getgid() && (home = getenv("HOME")) != NULL)
+#  elif !defined(WIN32)
+    if (getuid() && (home = getenv("HOME")) != NULL)
+#  else
     if ((home = getenv("HOME")) != NULL)
+#  endif /* HAVE_GETEUID */
     {
      /*
       * Look for ~/.cups/client.conf...
@@ -603,7 +895,7 @@ _cupsSetDefaults(void)
     * functions handle NULL cups_file_t pointers...
     */
 
-    cups_read_client_conf(fp, cg, cups_encryption, cups_server,
+    cups_read_client_conf(fp, cg, cups_encryption, cups_server, cups_user,
 #ifdef HAVE_GSSAPI
 			  cups_gssservicename,
 #endif /* HAVE_GSSAPI */
@@ -624,6 +916,7 @@ cups_read_client_conf(
     _cups_globals_t *cg,		/* I - Global data */
     const char      *cups_encryption,	/* I - CUPS_ENCRYPTION env var */
     const char      *cups_server,	/* I - CUPS_SERVER env var */
+    const char      *cups_user,		/* I - CUPS_USER env var */
 #ifdef HAVE_GSSAPI
     const char      *cups_gssservicename,
 					/* I - CUPS_GSSSERVICENAME env var */
@@ -639,6 +932,7 @@ cups_read_client_conf(
 #ifndef __APPLE__
 	server_name[1024],		/* ServerName value */
 #endif /* !__APPLE__ */
+	user[256],			/* User value */
 	any_root[1024],			/* AllowAnyRoot value */
 	expired_root[1024],		/* AllowExpiredRoot value */
 	expired_certs[1024];		/* AllowExpiredCerts value */
@@ -662,7 +956,7 @@ cups_read_client_conf(
     }
 #ifndef __APPLE__
    /*
-    * The Server directive is not supported on Mac OS X due to app sandboxing
+    * The Server directive is not supported on OS X due to app sandboxing
     * restrictions, i.e. not all apps request network access.
     */
     else if (!cups_server && (!cg->server[0] || !cg->ipp_port) &&
@@ -672,6 +966,11 @@ cups_read_client_conf(
       cups_server = server_name;
     }
 #endif /* !__APPLE__ */
+    else if (!cups_user && !_cups_strcasecmp(line, "User") && value)
+    {
+      strlcpy(user, value, sizeof(user));
+      cups_user = user;
+    }
     else if (!cups_anyroot && !_cups_strcasecmp(line, "AllowAnyRoot") && value)
     {
       strlcpy(any_root, value, sizeof(any_root));
@@ -706,46 +1005,17 @@ cups_read_client_conf(
   if (cg->encryption == (http_encryption_t)-1 && cups_encryption)
   {
     if (!_cups_strcasecmp(cups_encryption, "never"))
-      cg->encryption = HTTP_ENCRYPT_NEVER;
+      cg->encryption = HTTP_ENCRYPTION_NEVER;
     else if (!_cups_strcasecmp(cups_encryption, "always"))
-      cg->encryption = HTTP_ENCRYPT_ALWAYS;
+      cg->encryption = HTTP_ENCRYPTION_ALWAYS;
     else if (!_cups_strcasecmp(cups_encryption, "required"))
-      cg->encryption = HTTP_ENCRYPT_REQUIRED;
+      cg->encryption = HTTP_ENCRYPTION_REQUIRED;
     else
-      cg->encryption = HTTP_ENCRYPT_IF_REQUESTED;
+      cg->encryption = HTTP_ENCRYPTION_IF_REQUESTED;
   }
 
   if ((!cg->server[0] || !cg->ipp_port) && cups_server)
-  {
-    if (!cg->server[0])
-    {
-     /*
-      * Copy server name...
-      */
-
-      strlcpy(cg->server, cups_server, sizeof(cg->server));
-
-      if (cg->server[0] != '/' && (value = strrchr(cg->server, ':')) != NULL &&
-	  !strchr(value, ']') && isdigit(value[1] & 255))
-        *value++ = '\0';
-      else
-        value = NULL;
-
-      if (cg->server[0] == '/')
-	strcpy(cg->servername, "localhost");
-      else
-	strlcpy(cg->servername, cg->server, sizeof(cg->servername));
-    }
-    else if (cups_server[0] != '/' &&
-             (value = strrchr(cups_server, ':')) != NULL &&
-	     !strchr(value, ']') && isdigit(value[1] & 255))
-      value ++;
-    else
-      value = NULL;
-
-    if (!cg->ipp_port && value)
-      cg->ipp_port = atoi(value);
-  }
+    cupsSetServer(cups_server);
 
   if (!cg->server[0])
   {
@@ -780,6 +1050,59 @@ cups_read_client_conf(
       cg->ipp_port = CUPS_DEFAULT_IPP_PORT;
   }
 
+  if (!cg->user[0])
+  {
+    if (cups_user)
+      strlcpy(cg->user, cups_user, sizeof(cg->user));
+    else
+    {
+#ifdef WIN32
+     /*
+      * Get the current user name from the OS...
+      */
+
+      DWORD	size;			/* Size of string */
+
+      size = sizeof(cg->user);
+      if (!GetUserName(cg->user, &size))
+#else
+     /*
+      * Try the USER environment variable as the default username...
+      */
+
+      const char *envuser = getenv("USER");
+					/* Default username */
+      struct passwd	*pw = NULL;	/* Account information */
+
+      if (envuser)
+      {
+       /*
+	* Validate USER matches the current UID, otherwise don't allow it to
+	* override things...  This makes sure that printing after doing su or
+	* sudo records the correct username.
+	*/
+
+	if ((pw = getpwnam(envuser)) != NULL && pw->pw_uid != getuid())
+	  pw = NULL;
+      }
+
+      if (!pw)
+        pw = getpwuid(getuid());
+
+      if (pw)
+	strlcpy(cg->user, pw->pw_name, sizeof(cg->user));
+      else
+#endif /* WIN32 */
+      {
+       /*
+	* Use the default "unknown" user name...
+	*/
+
+	strlcpy(cg->user, "unknown", sizeof(cg->user));
+      }
+    }
+  }
+
 #ifdef HAVE_GSSAPI
   if (!cups_gssservicename)
     cups_gssservicename = CUPS_DEFAULT_GSSSERVICENAME;
@@ -806,5 +1129,5 @@ cups_read_client_conf(
 
 
 /*
- * End of "$Id: usersys.c 9969 2011-09-07 22:32:14Z mike $".
+ * End of "$Id: usersys.c 11909 2014-06-09 18:58:16Z msweet $".
  */

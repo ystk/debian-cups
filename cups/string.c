@@ -1,9 +1,9 @@
 /*
- * "$Id: string.c 9793 2011-05-20 03:49:49Z mike $"
+ * "$Id: string.c 11890 2014-05-22 13:59:21Z msweet $"
  *
  *   String functions for CUPS.
  *
- *   Copyright 2007-2011 by Apple Inc.
+ *   Copyright 2007-2012 by Apple Inc.
  *   Copyright 1997-2007 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -37,10 +37,7 @@
  */
 
 #define _CUPS_STRING_C_
-#include "string-private.h"
-#include "debug-private.h"
-#include "thread-private.h"
-#include "array.h"
+#include "cups-private.h"
 #include <stddef.h>
 #include <limits.h>
 
@@ -69,6 +66,7 @@ static int	compare_sp_items(_cups_sp_item_t *a, _cups_sp_item_t *b);
 char *					/* O - String pointer */
 _cupsStrAlloc(const char *s)		/* I - String */
 {
+  size_t		slen;		/* Length of string */
   _cups_sp_item_t	*item,		/* String pool item */
 			*key;		/* Search key */
 
@@ -128,7 +126,8 @@ _cupsStrAlloc(const char *s)		/* I - String */
   * Not found, so allocate a new one...
   */
 
-  item = (_cups_sp_item_t *)calloc(1, sizeof(_cups_sp_item_t) + strlen(s));
+  slen = strlen(s);
+  item = (_cups_sp_item_t *)calloc(1, sizeof(_cups_sp_item_t) + slen);
   if (!item)
   {
     _cupsMutexUnlock(&sp_mutex);
@@ -137,7 +136,7 @@ _cupsStrAlloc(const char *s)		/* I - String */
   }
 
   item->ref_count = 1;
-  strcpy(item->str, s);
+  memcpy(item->str, s, slen + 1);
 
 #ifdef DEBUG_GUARDS
   item->guard = _CUPS_STR_GUARD;
@@ -156,6 +155,39 @@ _cupsStrAlloc(const char *s)		/* I - String */
   _cupsMutexUnlock(&sp_mutex);
 
   return (item->str);
+}
+
+
+/*
+ * '_cupsStrDate()' - Return a localized date for a given time value.
+ *
+ * This function works around the locale encoding issues of strftime...
+ */
+
+char *					/* O - Buffer */
+_cupsStrDate(char   *buf,		/* I - Buffer */
+             size_t bufsize,		/* I - Size of buffer */
+	     time_t timeval)		/* I - Time value */
+{
+  struct tm	*dateval;		/* Local date/time */
+  char		temp[1024];		/* Temporary buffer */
+  _cups_globals_t *cg = _cupsGlobals();	/* Per-thread globals */
+
+
+  if (!cg->lang_default)
+    cg->lang_default = cupsLangDefault();
+
+  dateval = localtime(&timeval);
+
+  if (cg->lang_default->encoding != CUPS_UTF8)
+  {
+    strftime(temp, sizeof(temp), "%c", dateval);
+    cupsCharsetToUTF8((cups_utf8_t *)buf, temp, (int)bufsize, cg->lang_default->encoding);
+  }
+  else
+    strftime(buf, bufsize, "%c", dateval);
+
+  return (buf);
 }
 
 
@@ -588,16 +620,18 @@ _cups_strcpy(char       *dst,		/* I - Destination string */
 char 	*				/* O - New string pointer */
 _cups_strdup(const char *s)		/* I - String to duplicate */
 {
-  char	*t;				/* New string pointer */
+  char		*t;			/* New string pointer */
+  size_t	slen;			/* Length of string */
 
 
-  if (s == NULL)
+  if (!s)
     return (NULL);
 
-  if ((t = malloc(strlen(s) + 1)) == NULL)
+  slen = strlen(s);
+  if ((t = malloc(slen + 1)) == NULL)
     return (NULL);
 
-  return (strcpy(t, s));
+  return (memcpy(t, s, slen + 1));
 }
 #endif /* !HAVE_STRDUP */
 
@@ -755,5 +789,5 @@ compare_sp_items(_cups_sp_item_t *a,	/* I - First item */
 
 
 /*
- * End of "$Id: string.c 9793 2011-05-20 03:49:49Z mike $".
+ * End of "$Id: string.c 11890 2014-05-22 13:59:21Z msweet $".
  */

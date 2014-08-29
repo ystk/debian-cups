@@ -1,22 +1,22 @@
 .\"
-.\" "$Id: ipptoolfile.man 10023 2011-09-28 16:21:15Z mike $"
+.\" "$Id: ipptoolfile.man 11734 2014-03-25 18:01:47Z msweet $"
 .\"
-.\"   ipptoolfile man page for CUPS.
+.\" ipptoolfile man page for CUPS.
 .\"
-.\"   Copyright 2010-2011 by Apple Inc.
+.\" Copyright 2010-2014 by Apple Inc.
 .\"
-.\"   These coded instructions, statements, and computer programs are the
-.\"   property of Apple Inc. and are protected by Federal copyright
-.\"   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
-.\"   which should have been included with this file.  If this file is
-.\"   file is missing or damaged, see the license at "http://www.cups.org/".
+.\" These coded instructions, statements, and computer programs are the
+.\" property of Apple Inc. and are protected by Federal copyright
+.\" law.  Distribution and use rights are outlined in the file "LICENSE.txt"
+.\" which should have been included with this file.  If this file is
+.\" file is missing or damaged, see the license at "http://www.cups.org/".
 .\"
-.TH ipptoolfile 5 "CUPS" "28 September 2011" "Apple Inc."
+.TH ipptoolfile 5 "CUPS" "25 March 2014" "Apple Inc."
 .SH NAME
 ipptoolfile \- ipptool file format
 
 .SH DESCRIPTION
-The \fIipptool(1)\fR program accepts free-form plain text files that describe one or more IPP requests. Comments start with the "#" character and continue to the end of the line. Each request is enclosed by curley braces, for example:
+The \fIipptool(1)\fR program accepts free-form plain text files that describe one or more IPP requests. Comments start with the "#" character and continue to the end of the line. Each request is enclosed by curly braces, for example:
 .nf
 
     # This is a comment
@@ -78,6 +78,9 @@ DEFINE-DEFAULT variable-name value
 Defines the named variable to the given value if it does not already have a
 value.
 .TP 5
+FILE-ID "identifier"
+Specifies an identifier string for the current file.
+.TP 5
 IGNORE-ERRORS yes
 .TP 5
 IGNORE-ERRORS no
@@ -110,6 +113,11 @@ SKIP-IF-DEFINED variable-name
 SKIP-IF-NOT-DEFINED variable-name
 Specifies that the remainder of the test file should be skipped when the
 variable is or is not defined.
+.TP 5
+STOP-AFTER-INCLUDE-ERROR no
+.TP 5
+STOP-AFTER-INCLUDE-ERROR yes
+Specifies whether tests will be stopped after an error in an included file.
 .TP 5
 TRANSFER auto
 Specifies that tests will, by default, use "Transfer-Encoding: chunked" for
@@ -144,12 +152,21 @@ The following directives are understood in a test:
 .TP 5
 ATTR tag attribute-name value(s)
 Adds an attribute to the test request. Values are separated by the comma (",")
-character - escape commas using the "\" character.
+character - escape commas using the "\" character. Common attributes and values are listed in the IANA IPP registry - see references below.
 .TP 5
 ATTR collection attribute-name { MEMBER tag member-name value(s) ... } [ ... { ... } ]
 Adds a collection attribute to the test request. Member attributes follow the
 same syntax as regular attributes and can themselves be nested collections.
 Multiple collection values can be supplied as needed.
+.TP 5
+COMPRESSION deflate
+.TP 5
+COMPRESSION gzip
+.TP 5
+COMPRESSION none
+.br
+Uses the specified compression on the document data following the attributes in
+a Print-Job or Send-Document request.
 .TP 5
 DELAY seconds
 Specifies a delay before this test will be run.
@@ -213,6 +230,9 @@ Specifies an expected response status-code value. Additional requirements can be
 added as predicates - see the "STATUS PREDICATES" section for more information
 on predicates.
 .TP 5
+TEST-ID "identifier"
+Specifies an identifier string for the current test.
+.TP 5
 TRANSFER auto
 Specifies that this test will use "Transfer-Encoding: chunked" if it has an
 attached file or "Content-Length:" otherwise.
@@ -266,6 +286,10 @@ Requires the EXPECT attribute to be in the specified group tag.
 OF-TYPE tag[,tag,...]
 Requires the EXPECT attribute to use the specified value tag(s).
 .TP 5
+REPEAT-LIMIT number
+.br
+Specifies the maximum number of times to repeat. The default value is 1000.
+.TP 5
 REPEAT-MATCH
 .TP 5
 REPEAT-NO-MATCH
@@ -276,23 +300,94 @@ SAME-COUNT-AS attribute-name
 Requires the EXPECT attribute to have the same number of values as the specified
 parallel attribute.
 .TP 5
+WITH-ALL-HOSTNAMES "literal string"
+.TP 5
+WITH-ALL-HOSTNAMES "/regular expression/"
+Requires that all URI values contain a matching hostname.
+.TP 5
+WITH-ALL-RESOURCES "literal string"
+.TP 5
+WITH-ALL-RESOURCES "/regular expression/"
+Requires that all URI values contain a matching resource (including leading /).
+.TP 5
+WITH-ALL-SCHEMES "literal string"
+.TP 5
+WITH-ALL-SCHEMES "/regular expression/"
+Requires that all URI values contain a matching scheme.
+.TP 5
+WITH-ALL-VALUES "literal string"
+Requires that all values of the EXPECT attribute match the literal string. Comparisons are case-sensitive.
+.TP 5
+WITH-ALL-VALUES <number
+.TP 5
+WITH-ALL-VALUES =number
+.TP 5
+WITH-ALL-VALUES >number
+.TP 5
+WITH-ALL-VALUES number[,number,...]
+Requires that all values of the EXPECT attribute match the number(s) or numeric comparison. When comparing rangeOfInteger values, the "<" and ">" operators only check the upper bound of the range.
+.TP 5
+WITH-ALL-VALUES "false"
+.TP 5
+WITH-ALL-VALUES "true"
+Requires that all values of the EXPECT attribute match the boolean value given.
+.TP 5
+WITH-ALL-VALUES "/regular expression/"
+Requires that all values of the EXPECT attribute match the regular expression, which must conform to the POSIX regular expression syntax. Comparisons are case-sensitive.
+.TP 5
+WITH-HOSTNAME "literal string"
+.TP 5
+WITH-HOSTNAME "/regular expression/"
+Requires that at least one URI value contains a matching hostname.
+.TP 5
+WITH-RESOURCE "literal string"
+.TP 5
+WITH-RESOURCE "/regular expression/"
+Requires that at least one URI value contains a matching resource (including leading /).
+.TP 5
+WITH-SCHEME "literal string"
+.TP 5
+WITH-SCHEME "/regular expression/"
+Requires that at least one URI value contains a matching scheme.
+.TP 5
 WITH-VALUE "literal string"
-Requires at least one value of the EXPECT attribute to match the literal string.
-Comparisons are case-sensitive.
+Requires that at least one value of the EXPECT attribute matches the literal string. Comparisons are case-sensitive.
+.TP 5
+WITH-VALUE <number
+.TP 5
+WITH-VALUE =number
+.TP 5
+WITH-VALUE >number
+.TP 5
+WITH-VALUE number[,number,...]
+Requires that at least one value of the EXPECT attribute matches the number(s) or numeric comparison. When comparing rangeOfInteger values, the "<" and ">" operators only check the upper bound of the range.
+.TP 5
+WITH-VALUE "false"
+.TP 5
+WITH-VALUE "true"
+Requires that at least one value of the EXPECT attribute matches the boolean value given.
 .TP 5
 WITH-VALUE "/regular expression/"
-Requires that all values of the EXPECT attribute match the regular expression,
-which must conform to the POSIX regular expression syntax.
-Comparisons are case-sensitive.
+Requires that at least one value of the EXPECT attribute matches the regular expression, which must conform to the POSIX regular expression syntax. Comparisons are case-sensitive.
 
 .SH STATUS PREDICATES
 The following predicates are understood following the STATUS test directive:
+.TP 5
+DEFINE-MATCH variable-name
+Defines the variable to "1" when the STATUS matches. A side-effect of this predicate is that this STATUS will never fail a test.
+.TP 5
+DEFINE-NO-MATCH variable-name
+Defines the variable to "1" when the STATUS does not match. A side-effect of this predicate is that this STATUS will never fail a test.
 .TP 5
 IF-DEFINED variable-name
 Makes the STATUS apply only if the specified variable is defined.
 .TP 5
 IF-NOT-DEFINED variable-name
 Makes the STATUS apply only if the specified variable is not defined.
+.TP 5
+REPEAT-LIMIT number
+.br
+Specifies the maximum number of times to repeat. The default value is 1000.
 .TP 5
 REPEAT-MATCH
 .TP 5
@@ -328,8 +423,8 @@ RFC 2911 and other IPP extension specifications. Here is a complete list:
     Cancel-Subscription
     Close-Job
     Create-Job
-    Create-Job-Subscription
-    Create-Printer-Subscription
+    Create-Job-Subscriptions
+    Create-Printer-Subscriptions
     Deactivate-Printer
     Disable-Printer
     Enable-Printer
@@ -343,6 +438,7 @@ RFC 2911 and other IPP extension specifications. Here is a complete list:
     Get-Subscriptions
     Hold-Job
     Hold-New-Jobs
+    Identify-Printer
     Pause-Printer
     Pause-Printer-After-Current-Job
     Print-Job
@@ -360,6 +456,7 @@ RFC 2911 and other IPP extension specifications. Here is a complete list:
     Resume-Printer
     Schedule-Job-After
     Send-Document
+    Send-Hardcopy-Document
     Send-Notifications
     Send-URI
     Set-Job-Attributes
@@ -367,6 +464,7 @@ RFC 2911 and other IPP extension specifications. Here is a complete list:
     Shutdown-Printer
     Startup-Printer
     Suspend-Current-Job
+    Validate-Document
     Validate-Job
 .fi
 
@@ -384,6 +482,10 @@ Status codes correspond to the hexadecimal numbers (0xHHHH) and names from RFC
     client-error-document-access-error
     client-error-document-format-error
     client-error-document-format-not-supported
+    client-error-document-password-error
+    client-error-document-permission-error
+    client-error-document-security-error
+    client-error-document-unprintable-error
     client-error-forbidden
     client-error-gone
     client-error-ignored-all-notifications
@@ -493,7 +595,7 @@ $scheme
 Inserts the scheme from the URI provided to \fIipptool\fR.
 .TP 5
 $notify-subscription-id
-Inserts the last notify-subscription-id value returnd in a test response or 0 if
+Inserts the last notify-subscription-id value returned in a test response or 0 if
 no notify-subscription-id has been seen.
 .TP 5
 $port
@@ -512,12 +614,15 @@ $username
 Inserts the username from the URI provided to \fIipptool\fR, if any.
 
 .SH SEE ALSO
-\fIipptool(1)\fR,
+\fIipptool(1)\fR, RFC 2911,
 .br
 http://localhost:631/help
-
+.br
+http://www.iana.org/assignments/ipp-registrations
+.br
+http://www.pwg.org/ipp
 .SH COPYRIGHT
-Copyright 2007-2011 by Apple Inc.
+Copyright 2007-2014 by Apple Inc.
 .\"
-.\" End of "$Id: ipptoolfile.man 10023 2011-09-28 16:21:15Z mike $".
+.\" End of "$Id: ipptoolfile.man 11734 2014-03-25 18:01:47Z msweet $".
 .\"

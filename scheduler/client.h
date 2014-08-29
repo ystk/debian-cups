@@ -1,5 +1,5 @@
 /*
- * "$Id: client.h 9652 2011-03-25 21:25:38Z mike $"
+ * "$Id: client.h 11213 2013-08-01 22:23:18Z msweet $"
  *
  *   Client definitions for the CUPS scheduler.
  *
@@ -32,8 +32,10 @@ struct cupsd_client_s
   http_state_t		operation;	/* Request operation */
   off_t			bytes;		/* Bytes transferred for this request */
   int			type;		/* AuthType for username */
-  char			username[256],	/* Username from Authorization: line */
-			password[33],	/* Password from Authorization: line */
+  char			username[HTTP_MAX_VALUE],
+					/* Username from Authorization: line */
+			password[HTTP_MAX_VALUE],
+					/* Password from Authorization: line */
 			uri[HTTP_MAX_URI],
 					/* Localized URL/URI for GET/PUT */
 			*filename,	/* Filename of output file */
@@ -52,6 +54,8 @@ struct cupsd_client_s
   int			auto_ssl;	/* Automatic test for SSL/TLS */
 #endif /* HAVE_SSL */
   http_addr_t		clientaddr;	/* Client address */
+  char			clientname[256];/* Client's server name for connection */
+  int			clientport;	/* Client's server port for connection */
   char			servername[256];/* Server name for connection */
   int			serverport;	/* Server port for connection */
 #ifdef HAVE_GSSAPI
@@ -131,7 +135,12 @@ extern void	cupsdStopListening(void);
 extern void	cupsdUpdateCGI(void);
 extern void	cupsdWriteClient(cupsd_client_t *con);
 
+#ifdef HAVE_SSL
+extern int	cupsdEndTLS(cupsd_client_t *con);
+extern int	cupsdStartTLS(cupsd_client_t *con);
+#endif /* HAVE_SSL */
+
 
 /*
- * End of "$Id: client.h 9652 2011-03-25 21:25:38Z mike $".
+ * End of "$Id: client.h 11213 2013-08-01 22:23:18Z msweet $".
  */

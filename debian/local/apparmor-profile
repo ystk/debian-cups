@@ -21,6 +21,8 @@
   capability net_bind_service,
   capability setgid,
   capability setuid,
+  capability audit_write,
+  deny capability block_suspend,
 
   # nasty, but we limit file access pretty tightly, and cups chowns a
   # lot of files to 'lp' which it cannot read/write afterwards any
@@ -53,6 +55,7 @@
   /dev/parport* rw,
   /etc/cups/ rw,
   /etc/cups/** rw,
+  /etc/cups/interfaces/* ixrw,
   /etc/foomatic/* r,
   /etc/gai.conf r,
   /etc/papersize r,
@@ -133,6 +136,9 @@
   /etc/likewise r,
   /etc/likewise/* r,
 
+  # silence noise
+  deny /etc/udev/udev.conf r,
+
   # Site-specific additions and overrides. See local/README for details.
   #include <local/usr.sbin.cupsd>
 }
@@ -153,6 +159,8 @@
   # unfortunate, but required for when $HOME is 700
   capability dac_override,
   capability dac_read_search,
+
+  @{PROC}/*/auxv r,
 
   /bin/dash ixr,
   /bin/bash ixr,

@@ -1,9 +1,9 @@
 /*
- * "$Id: raster.c 10006 2011-09-20 18:36:33Z mike $"
+ * "$Id: raster.c 10996 2013-05-29 11:51:34Z msweet $"
  *
  *   Raster file routines for CUPS.
  *
- *   Copyright 2007-2011 by Apple Inc.
+ *   Copyright 2007-2012 by Apple Inc.
  *   Copyright 1997-2006 by Easy Software Products.
  *
  *   This file is part of the CUPS Imaging library.
@@ -45,13 +45,10 @@
  * Include necessary headers...
  */
 
-#include "image-private.h"
-#if defined(WIN32) || defined(__EMX__)
-#  include <io.h>
-#  include <winsock2.h>			/* for htonl() definition */
-#else
-#  include <unistd.h>
-#endif /* WIN32 || __EMX__ */
+#include <cups/raster-private.h>
+#ifdef HAVE_STDINT_H
+#  include <stdint.h>
+#endif /* HAVE_STDINT_H */
 
 
 /*
@@ -300,7 +297,7 @@ cupsRasterReadHeader(
  * 'cupsRasterReadHeader2()' - Read a raster page header and store it in a
  *                             version 2 page header structure.
  *
- * @since CUPS 1.2/Mac OS X 10.5@
+ * @since CUPS 1.2/OS X 10.5@
  */
 
 unsigned				/* O - 1 on success, 0 on failure/end-of-file */
@@ -510,7 +507,7 @@ cupsRasterReadPixels(cups_raster_t *r,	/* I - Raster stream */
       * Copy fragment from buffer...
       */
 
-      if ((unsigned)(bytes = r->pend - r->pcurrent) > remaining)
+      if ((unsigned)(bytes = (int)(r->pend - r->pcurrent)) > remaining)
         bytes = remaining;
 
       memcpy(p, r->pcurrent, bytes);
@@ -654,7 +651,7 @@ cupsRasterWriteHeader(
  *
  * The page header can be initialized using @link cupsRasterInterpretPPD@.
  *
- * @since CUPS 1.2/Mac OS X 10.5@
+ * @since CUPS 1.2/OS X 10.5@
  */
 
 unsigned				/* O - 1 on success, 0 on failure */
@@ -836,8 +833,8 @@ cupsRasterWritePixels(cups_raster_t *r,	/* I - Raster stream */
     * Figure out the number of remaining bytes on the current line...
     */
 
-    if ((bytes = remaining) > (r->pend - r->pcurrent))
-      bytes = r->pend - r->pcurrent;
+    if ((bytes = remaining) > (int)(r->pend - r->pcurrent))
+      bytes = (int)(r->pend - r->pcurrent);
 
     if (r->count > 0)
     {
@@ -1053,8 +1050,10 @@ cups_raster_read(cups_raster_t *r,	/* I - Raster stream */
 
   if ((size_t)count > r->bufsize)
   {
-    int offset = r->bufptr - r->buffer;	/* Offset to current start of buffer */
-    int end = r->bufend - r->buffer;	/* Offset to current end of buffer */
+    int offset = (int)(r->bufptr - r->buffer);
+					/* Offset to current start of buffer */
+    int end = (int)(r->bufend - r->buffer);
+					/* Offset to current end of buffer */
     unsigned char *rptr;		/* Pointer in read buffer */
 
     if (r->buffer)
@@ -1075,7 +1074,7 @@ cups_raster_read(cups_raster_t *r,	/* I - Raster stream */
   * Loop until we have read everything...
   */
 
-  for (total = 0, remaining = r->bufend - r->bufptr;
+  for (total = 0, remaining = (int)(r->bufend - r->bufptr);
        total < bytes;
        total += count, buf += count)
   {
@@ -1393,7 +1392,7 @@ cups_raster_write(
     }
   }
 
-  return (cups_raster_io(r, r->buffer, wptr - r->buffer));
+  return (cups_raster_io(r, r->buffer, (int)(wptr - r->buffer)));
 }
 
 
@@ -1411,7 +1410,11 @@ cups_read_fd(void          *ctx,	/* I - File descriptor as pointer */
   ssize_t	count;			/* Number of bytes read */
 
 
+#ifdef WIN32 /* Sigh */
+  while ((count = read(fd, buf, (unsigned)bytes)) < 0)
+#else
   while ((count = read(fd, buf, bytes)) < 0)
+#endif /* WIN32 */
     if (errno != EINTR && errno != EAGAIN)
       return (-1);
 
@@ -1459,7 +1462,11 @@ cups_write_fd(void          *ctx,	/* I - File descriptor pointer */
   ssize_t	count;			/* Number of bytes written */
 
 
+#ifdef WIN32 /* Sigh */
+  while ((count = write(fd, buf, (unsigned)bytes)) < 0)
+#else
   while ((count = write(fd, buf, bytes)) < 0)
+#endif /* WIN32 */
     if (errno != EINTR && errno != EAGAIN)
       return (-1);
 
@@ -1468,5 +1475,5 @@ cups_write_fd(void          *ctx,	/* I - File descriptor pointer */
 
 
 /*
- * End of "$Id: raster.c 10006 2011-09-20 18:36:33Z mike $".
+ * End of "$Id: raster.c 10996 2013-05-29 11:51:34Z msweet $".
  */

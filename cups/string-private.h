@@ -1,18 +1,18 @@
 /*
- * "$Id: string-private.h 9793 2011-05-20 03:49:49Z mike $"
+ * "$Id: string-private.h 11890 2014-05-22 13:59:21Z msweet $"
  *
- *   Private string definitions for CUPS.
+ * Private string definitions for CUPS.
  *
- *   Copyright 2007-2011 by Apple Inc.
- *   Copyright 1997-2006 by Easy Software Products.
+ * Copyright 2007-2014 by Apple Inc.
+ * Copyright 1997-2006 by Easy Software Products.
  *
- *   These coded instructions, statements, and computer programs are the
- *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
+ * These coded instructions, statements, and computer programs are the
+ * property of Apple Inc. and are protected by Federal copyright
+ * law.  Distribution and use rights are outlined in the file "LICENSE.txt"
+ * which should have been included with this file.  If this file is
+ * file is missing or damaged, see the license at "http://www.cups.org/".
  *
- *   This file is subject to the Apple OS-Developed Software exception.
+ * This file is subject to the Apple OS-Developed Software exception.
  */
 
 #ifndef _CUPS_STRING_PRIVATE_H_
@@ -28,6 +28,7 @@
 #  include <ctype.h>
 #  include <errno.h>
 #  include <locale.h>
+#  include <time.h>
 
 #  include "config.h"
 
@@ -102,6 +103,12 @@ _cups_isalpha(int ch)			/* I - Character to test */
 }
 
 _CUPS_INLINE int			/* O - 1 on match, 0 otherwise */
+_cups_islower(int ch)			/* I - Character to test */
+{
+  return (ch >= 'a' && ch <= 'z');
+}
+
+_CUPS_INLINE int			/* O - 1 on match, 0 otherwise */
 _cups_isspace(int ch)			/* I - Character to test */
 {
   return (ch == ' ' || ch == '\f' || ch == '\n' || ch == '\r' || ch == '\t' ||
@@ -119,12 +126,20 @@ _cups_tolower(int ch)			/* I - Character to convert */
 {
   return (_cups_isupper(ch) ? ch - 'A' + 'a' : ch);
 }
+
+_CUPS_INLINE int			/* O - Converted character */
+_cups_toupper(int ch)			/* I - Character to convert */
+{
+  return (_cups_islower(ch) ? ch - 'a' + 'A' : ch);
+}
 #  else
 extern int _cups_isalnum(int ch);
 extern int _cups_isalpha(int ch);
+extern int _cups_islower(int ch);
 extern int _cups_isspace(int ch);
 extern int _cups_isupper(int ch);
 extern int _cups_tolower(int ch);
+extern int _cups_toupper(int ch);
 #  endif /* _CUPS_INLINE */
 
 
@@ -155,10 +170,7 @@ extern size_t _cups_strlcpy(char *, const char *, size_t);
 
 #  ifndef HAVE_SNPRINTF
 extern int	_cups_snprintf(char *, size_t, const char *, ...)
-#    ifdef __GNUC__
-__attribute__ ((__format__ (__printf__, 3, 4)))
-#    endif /* __GNUC__ */
-;
+		__attribute__ ((__format__ (__printf__, 3, 4)));
 #    define snprintf _cups_snprintf
 #  endif /* !HAVE_SNPRINTF */
 
@@ -189,6 +201,13 @@ extern double	_cupsStrScand(const char *buf, char **bufptr,
 
 
 /*
+ * Date function...
+ */
+
+extern char	*_cupsStrDate(char *buf, size_t bufsize, time_t timeval);
+
+
+/*
  * C++ magic...
  */
 
@@ -199,5 +218,5 @@ extern double	_cupsStrScand(const char *buf, char **bufptr,
 #endif /* !_CUPS_STRING_H_ */
 
 /*
- * End of "$Id: string-private.h 9793 2011-05-20 03:49:49Z mike $".
+ * End of "$Id: string-private.h 11890 2014-05-22 13:59:21Z msweet $".
  */

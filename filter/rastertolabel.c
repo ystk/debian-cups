@@ -1,9 +1,9 @@
 /*
- * "$Id: rastertolabel.c 9774 2011-05-12 06:15:14Z mike $"
+ * "$Id: rastertolabel.c 11756 2014-03-27 17:06:25Z msweet $"
  *
  *   Label printer filter for CUPS.
  *
- *   Copyright 2007-2010 by Apple Inc.
+ *   Copyright 2007-2012 by Apple Inc.
  *   Copyright 2001-2007 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -567,7 +567,7 @@ EndPage(ppd_file_t *ppd,		/* I - PPD file */
 	*/
 
 	if (header->cupsRowStep != 200)
-	  printf("^LT%u\n", header->cupsRowStep);
+	  printf("^LT%d\n", header->cupsRowStep);
 
        /*
         * Set media type...
@@ -639,13 +639,6 @@ EndPage(ppd_file_t *ppd,		/* I - PPD file */
 
         puts("^IDR:CUPS.GRF^FS");
 	puts("^XZ");
-
-       /*
-        * Free compression buffers...
-	*/
-
-	free(CompBuffer);
-	free(LastBuffer);
         break;
 
     case ZEBRA_CPCL :
@@ -714,6 +707,18 @@ EndPage(ppd_file_t *ppd,		/* I - PPD file */
   */
 
   free(Buffer);
+
+  if (CompBuffer)
+  {
+    free(CompBuffer);
+    CompBuffer = NULL;
+  }
+
+  if (LastBuffer)
+  {
+    free(LastBuffer);
+    LastBuffer = NULL;
+  }
 }
 
 
@@ -777,17 +782,6 @@ OutputLine(ppd_file_t         *ppd,	/* I - PPD file */
           putchar(0x16);
 	  fwrite(Buffer, header->cupsBytesPerLine, 1, stdout);
 	  fflush(stdout);
-
-#ifdef __sgi
-	 /*
-          * This hack works around a bug in the IRIX serial port driver when
-	  * run at high baud rates (e.g. 115200 baud)...  This results in
-	  * slightly slower label printing, but at least the labels come
-	  * out properly.
-	  */
-
-	  sginap(1);
-#endif /* __sgi */
 	}
 	else
           Feed ++;
@@ -1303,13 +1297,10 @@ main(int  argc,				/* I - Number of command-line arguments */
     return (1);
   }
   else
-  {
-    _cupsLangPrintFilter(stderr, "INFO", _("Ready to print."));
     return (0);
-  }
 }
 
 
 /*
- * End of "$Id: rastertolabel.c 9774 2011-05-12 06:15:14Z mike $".
+ * End of "$Id: rastertolabel.c 11756 2014-03-27 17:06:25Z msweet $".
  */
