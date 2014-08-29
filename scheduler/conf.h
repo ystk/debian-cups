@@ -1,9 +1,9 @@
 /*
- * "$Id: conf.h 9710 2011-04-22 17:47:03Z mike $"
+ * "$Id: conf.h 11202 2013-07-26 21:31:54Z msweet $"
  *
  *   Configuration file definitions for the CUPS scheduler.
  *
- *   Copyright 2007-2011 by Apple Inc.
+ *   Copyright 2007-2013 by Apple Inc.
  *   Copyright 1997-2007 by Easy Software Products, all rights reserved.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -20,9 +20,10 @@
 
 typedef enum
 {
-  CUPSD_LOG_PPD = -4,			/* Used internally for PPD keywords */
+  CUPSD_LOG_PPD = -5,			/* Used internally for PPD keywords */
   CUPSD_LOG_ATTR,			/* Used internally for attributes */
-  CUPSD_LOG_STATE,			/* Used internally for state-reasons */
+  CUPSD_LOG_STATE,			/* Used internally for printer-state-reasons */
+  CUPSD_LOG_JOBSTATE,			/* Used internally for job-state-reasons */
   CUPSD_LOG_PAGE,			/* Used internally for page logging */
   CUPSD_LOG_NONE,
   CUPSD_LOG_EMERG,			/* Emergency issues */
@@ -69,7 +70,7 @@ typedef enum
 
 #define PRINTCAP_BSD		0	/* Berkeley LPD format */
 #define PRINTCAP_SOLARIS	1	/* Solaris lpsched format */
-#define PRINTCAP_PLIST		2	/* Mac OS X plist format */
+#define PRINTCAP_PLIST		2	/* OS X plist format */
 
 
 /*
@@ -96,7 +97,9 @@ typedef struct
  */
 
 VAR char		*ConfigurationFile	VALUE(NULL),
-					/* Configuration file to use */
+					/* cupsd.conf file to use */
+			*CupsFilesFile		VALUE(NULL),
+					/* cups-files.conf file to use */
 			*ServerName		VALUE(NULL),
 					/* FQDN for server */
 			*ServerAdmin		VALUE(NULL),
@@ -147,8 +150,6 @@ VAR char		*AccessLog		VALUE(NULL),
 					/* Temporary directory */
 			*Printcap		VALUE(NULL),
 					/* Printcap file */
-			*PrintcapGUI		VALUE(NULL),
-					/* GUI program to use for IRIX */
 			*FontPath		VALUE(NULL),
 					/* Font search path */
 			*RemoteRoot		VALUE(NULL),
@@ -169,6 +170,10 @@ VAR int			ClassifyOverride	VALUE(0),
 					/* Amount of automatic debug history */
 			FatalErrors		VALUE(CUPSD_FATAL_CONFIG),
 					/* Which errors are fatal? */
+			StrictConformance	VALUE(FALSE),
+					/* Require strict IPP conformance? */
+			SyncOnClose		VALUE(FALSE),
+					/* Call fsync() when closing files? */
 			LogFilePerm		VALUE(0644);
 					/* Permissions for log files */
 VAR cupsd_loglevel_t	LogLevel		VALUE(CUPSD_LOG_WARN);
@@ -193,12 +198,6 @@ VAR int			MaxClients		VALUE(100),
 					/* Support the Keep-Alive option? */
 			KeepAliveTimeout	VALUE(DEFAULT_KEEPALIVE),
 					/* Timeout between requests */
-			ImplicitClasses		VALUE(TRUE),
-					/* Are classes implicitly created? */
-			ImplicitAnyClasses	VALUE(FALSE),
-					/* Create AnyPrinter classes? */
-			HideImplicitMembers	VALUE(TRUE),
-					/* Hide implicit class members? */
 			FileDevice		VALUE(FALSE),
 					/* Allow file: devices? */
 			FilterLimit		VALUE(0),
@@ -248,7 +247,7 @@ VAR int			SSLOptions		VALUE(CUPSD_SSL_NONE);
 #endif /* HAVE_SSL */
 
 #ifdef HAVE_LAUNCHD
-VAR int			LaunchdTimeout		VALUE(DEFAULT_KEEPALIVE);
+VAR int			LaunchdTimeout		VALUE(10);
 					/* Time after which an idle cupsd will exit */
 #endif /* HAVE_LAUNCHD */
 
@@ -256,6 +255,14 @@ VAR int			LaunchdTimeout		VALUE(DEFAULT_KEEPALIVE);
 VAR char		*SystemGroupAuthKey	VALUE(NULL);
 					/* System group auth key */
 #endif /* HAVE_AUTHORIZATION_H */
+
+#ifdef HAVE_GSSAPI
+VAR char		*GSSServiceName		VALUE(NULL);
+					/* GSS service name */
+int			HaveServerCreds		VALUE(0);
+					/* Do we have server credentials? */
+gss_cred_id_t		ServerCreds;	/* Server's GSS credentials */
+#endif /* HAVE_GSSAPI */
 
 
 /*
@@ -269,6 +276,7 @@ extern int	cupsdCheckPermissions(const char *filename,
 	 			      int user, int group, int is_dir,
 				      int create_dir);
 extern int	cupsdCheckProgram(const char *filename, cupsd_printer_t *p);
+extern int	cupsdDefaultAuthType(void);
 extern void	cupsdFreeAliases(cups_array_t *aliases);
 extern char	*cupsdGetDateTime(struct timeval *t, cupsd_time_t format);
 extern void	cupsdLogFCMessage(void *context, _cups_fc_result_t result,
@@ -278,16 +286,10 @@ extern int	cupsdLogGSSMessage(int level, int major_status,
 		                   int minor_status,
 		                   const char *message, ...);
 #endif /* HAVE_GSSAPI */
-extern int	cupsdLogJob(cupsd_job_t *job, int level, const char *message, ...)
-#ifdef __GNUC__
-__attribute__ ((__format__ (__printf__, 3, 4)))
-#endif /* __GNUC__ */
-;
+extern int	cupsdLogJob(cupsd_job_t *job, int level, const char *message,
+		            ...) __attribute__((__format__(__printf__, 3, 4)));
 extern int	cupsdLogMessage(int level, const char *message, ...)
-#ifdef __GNUC__
-__attribute__ ((__format__ (__printf__, 2, 3)))
-#endif /* __GNUC__ */
-;
+		__attribute__ ((__format__ (__printf__, 2, 3)));
 extern int	cupsdLogPage(cupsd_job_t *job, const char *page);
 extern int	cupsdLogRequest(cupsd_client_t *con, http_status_t code);
 extern int	cupsdReadConfiguration(void);
@@ -295,5 +297,5 @@ extern int	cupsdWriteErrorLog(int level, const char *message);
 
 
 /*
- * End of "$Id: conf.h 9710 2011-04-22 17:47:03Z mike $".
+ * End of "$Id: conf.h 11202 2013-07-26 21:31:54Z msweet $".
  */

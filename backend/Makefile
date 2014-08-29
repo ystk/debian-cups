@@ -1,9 +1,9 @@
 #
-# "$Id: Makefile 10425 2012-04-23 17:42:12Z mike $"
+# "$Id: Makefile 11154 2013-07-17 15:21:18Z msweet $"
 #
 #   Backend makefile for CUPS.
 #
-#   Copyright 2007-2012 by Apple Inc.
+#   Copyright 2007-2013 by Apple Inc.
 #   Copyright 1997-2007 by Easy Software Products, all rights reserved.
 #
 #   These coded instructions, statements, and computer programs are the
@@ -21,13 +21,43 @@ include ../Makedefs
 # Object files...
 #
 
-RBACKENDS =	ipp lpd $(DNSSD_BACKEND)
-UBACKENDS =	$(LEGACY_BACKENDS) serial snmp socket usb
-UNITTESTS =	test1284 testbackend testsupplies
-TARGETS =	libbackend.a $(RBACKENDS) $(UBACKENDS)
-LIBOBJS	=	ieee1284.o network.o runloop.o snmp-supplies.o
-OBJS	=	ipp.o lpd.o dnssd.o parallel.o serial.o snmp.o \
-		socket.o test1284.o testbackend.o testsupplies.o usb.o
+# RBACKENDS are installed mode 0700 so cupsd will run them as root...
+#
+# UBACKENDS are installed mode 0755 so cupsd will run them as an unprivileged
+# user...
+#
+# See http://www.cups.org/documentation.php/api-filter.html for more info...
+RBACKENDS =	\
+		ipp \
+		lpd \
+		$(DNSSD_BACKEND)
+UBACKENDS =	\
+		snmp \
+		socket \
+		usb
+UNITTESTS =	\
+		test1284 \
+		testbackend \
+		testsupplies
+TARGETS =	\
+		libbackend.a \
+		$(RBACKENDS) \
+		$(UBACKENDS)
+LIBOBJS	=	\
+		ieee1284.o \
+		network.o \
+		runloop.o \
+		snmp-supplies.o
+OBJS	=	\
+		ipp.o \
+		lpd.o \
+		dnssd.o \
+		snmp.o \
+		socket.o \
+		test1284.o \
+		testbackend.o \
+		testsupplies.o \
+		usb.o
 
 
 #
@@ -56,7 +86,7 @@ unittests:	$(UNITTESTS)
 #
 
 clean:
-	$(RM) $(OBJS) $(TARGETS) $(UNITTESTS) $(LIBOBJS) http mdns
+	$(RM) $(OBJS) $(TARGETS) $(UNITTESTS) $(LIBOBJS) http https ipps mdns
 
 
 #
@@ -64,7 +94,7 @@ clean:
 #
 
 depend:
-	makedepend -Y -I.. -fDependencies $(OBJS:.o=.c) >/dev/null 2>&1
+	$(CC) -MM $(ALL_CFLAGS) $(OBJS:.o=.c) >Dependencies
 
 
 #
@@ -79,6 +109,11 @@ install:	all install-data install-headers install-libs install-exec
 #
 
 install-data:
+	if test "x$(USBQUIRKS)" != x; then \
+		echo Installing USB quirks in $(USBQUIRKS); \
+		$(INSTALL_DIR) -m 755 $(USBQUIRKS); \
+		$(INSTALL_DATA) org.cups.usb-quirks $(USBQUIRKS); \
+	fi
 
 
 #
@@ -104,8 +139,9 @@ install-exec:	$(INSTALLXPC)
 	fi
 	if test "x$(SYMROOT)" != "x"; then \
 		$(INSTALL_DIR) $(SYMROOT); \
-		for file in $(TARGETS); do \
+		for file in $(RBACKENDS) $(UBACKENDS); do \
 			cp $$file $(SYMROOT); \
+			dsymutil $(SYMROOT)/$$file; \
 		done \
 	fi
 
@@ -202,8 +238,10 @@ libbackend.a:	$(LIBOBJS)
 dnssd:	dnssd.o ../cups/$(LIBCUPS) libbackend.a
 	echo Linking $@...
 	$(CC) $(LDFLAGS) -o dnssd dnssd.o libbackend.a $(LIBS)
-	$(RM) mdns
-	$(LN) dnssd mdns
+	if test `uname` = Darwin; then \
+		$(RM) mdns; \
+		$(LN) dnssd mdns; \
+	fi
 
 
 #
@@ -224,24 +262,6 @@ ipp:	ipp.o ../cups/$(LIBCUPS) libbackend.a
 lpd:	lpd.o ../cups/$(LIBCUPS) libbackend.a
 	echo Linking $@...
 	$(CC) $(LDFLAGS) -o lpd lpd.o libbackend.a $(LIBS)
-
-
-#
-# parallel
-#
-
-parallel:	parallel.o ../cups/$(LIBCUPS) libbackend.a
-	echo Linking $@...
-	$(CC) $(LDFLAGS) -o parallel parallel.o libbackend.a $(LIBS)
-
-
-#
-# serial
-#
-
-serial:	serial.o ../cups/$(LIBCUPS) libbackend.a
-	echo Linking $@...
-	$(CC) $(LDFLAGS) -o serial serial.o libbackend.a $(BACKLIBS) $(LIBS)
 
 
 #
@@ -281,5 +301,5 @@ include Dependencies
 
 
 #
-# End of "$Id: Makefile 10425 2012-04-23 17:42:12Z mike $".
+# End of "$Id: Makefile 11154 2013-07-17 15:21:18Z msweet $".
 #

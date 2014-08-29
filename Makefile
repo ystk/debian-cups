@@ -1,9 +1,9 @@
 #
-# "$Id: Makefile 9933 2011-08-29 21:19:27Z mike $"
+# "$Id: Makefile 11370 2013-10-30 15:08:29Z msweet $"
 #
 #   Top-level Makefile for CUPS.
 #
-#   Copyright 2007-2010 by Apple Inc.
+#   Copyright 2007-2013 by Apple Inc.
 #   Copyright 1997-2007 by Easy Software Products, all rights reserved.
 #
 #   These coded instructions, statements, and computer programs are the
@@ -20,7 +20,7 @@ include Makedefs
 # Directories to make...
 #
 
-DIRS	=	cups test $(BUILDDIRS) $(PHPDIR) $(FONTS)
+DIRS	=	cups test $(BUILDDIRS)
 
 
 #
@@ -128,8 +128,11 @@ depend:
 
 
 #
-# Run the clang.llvm.org static code analysis tool on the C sources.
-# (at least checker-231 is required for scan-build to work this way)
+# Run the Clang static code analysis tool on the sources, available here:
+#
+#    http://clang-analyzer.llvm.org
+#
+# At least checker-231 is required.
 #
 
 .PHONY: clang clang-changes
@@ -138,6 +141,26 @@ clang:
 	scan-build -V -k -o `pwd`/clang $(MAKE) $(MFLAGS) clean all
 clang-changes:
 	scan-build -V -k -o `pwd`/clang $(MAKE) $(MFLAGS) all
+
+
+#
+# Run the STACK tool on the sources, available here:
+#
+#    http://css.csail.mit.edu/stack/
+#
+# Do the following to pass options to configure:
+#
+#    make CONFIGFLAGS="--foo --bar" stack
+#
+
+.PHONY: stack
+stack:
+	stack-build ./configure $(CONFIGFLAGS)
+	stack-build $(MAKE) $(MFLAGS) clean all
+	poptck
+	$(MAKE) $(MFLAGS) distclean
+	$(RM) */*.ll
+	$(RM) */*.ll.out
 
 
 #
@@ -234,28 +257,32 @@ test:	all unittests
 
 check:	all unittests
 	echo Running CUPS test suite with defaults...
-	cd test; ./run-stp-tests.sh 1 0 n
+	cd test; ./run-stp-tests.sh 1 0 n n
+
+debugcheck:	all unittests
+	echo Running CUPS test suite with debug printfs...
+	cd test; ./run-stp-tests.sh 1 0 n y
 
 
 #
-# Create HTML documentation...
+# Create HTML documentation using Mini-XML's mxmldoc (http://www.msweet.org/)...
 #
 
 apihelp:
-	for dir in cgi-bin cups filter driver ppdc scheduler; do\
+	for dir in cgi-bin cups filter ppdc scheduler; do\
 		echo Generating API help in $$dir... ;\
 		(cd $$dir; $(MAKE) $(MFLAGS) apihelp) || exit 1;\
 	done
 
 framedhelp:
-	for dir in cgi-bin cups filter driver ppdc scheduler; do\
+	for dir in cgi-bin cups filter ppdc scheduler; do\
 		echo Generating framed API help in $$dir... ;\
 		(cd $$dir; $(MAKE) $(MFLAGS) framedhelp) || exit 1;\
 	done
 
 
 #
-# Create an Xcode docset...
+# Create an Xcode docset using Mini-XML's mxmldoc (http://www.msweet.org/)...
 #
 
 docset:	apihelp
@@ -271,10 +298,10 @@ docset:	apihelp
 		doc/help/api-*.tokens
 	$(RM) doc/help/api-*.tokens
 	echo Indexing docset...
-	/Developer/usr/bin/docsetutil index org.cups.docset
+	/Applications/Xcode.app/Contents/Developer/usr/bin/docsetutil index org.cups.docset
 	echo Generating docset archive and feed...
 	$(RM) org.cups.docset.atom
-	/Developer/usr/bin/docsetutil package --output org.cups.docset.xar \
+	/Applications/Xcode.app/Contents/Developer/usr/bin/docsetutil package --output org.cups.docset.xar \
 		--atom org.cups.docset.atom \
 		--download-url http://www.cups.org/org.cups.docset.xar \
 		org.cups.docset
@@ -291,7 +318,7 @@ sloc:
 
 
 #
-# Make software distributions using EPM (http://www.epmhome.org/)...
+# Make software distributions using EPM (http://www.msweet.org/)...
 #
 
 EPMFLAGS	=	-v --output-dir dist $(EPMARCH)
@@ -312,7 +339,6 @@ dist:	all
 	case `uname` in \
 		*BSD*) $(MAKE) $(MFLAGS) bsd;; \
 		Darwin*) $(MAKE) $(MFLAGS) osx;; \
-		IRIX*) $(MAKE) $(MFLAGS) tardist;; \
 		Linux*) test ! -x /usr/bin/rpm || $(MAKE) $(MFLAGS) rpm;; \
 		SunOS*) $(MAKE) $(MFLAGS) pkg;; \
 	esac
@@ -326,5 +352,5 @@ dist:	all
 
 
 #
-# End of "$Id: Makefile 9933 2011-08-29 21:19:27Z mike $".
+# End of "$Id: Makefile 11370 2013-10-30 15:08:29Z msweet $".
 #

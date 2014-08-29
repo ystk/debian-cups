@@ -1,31 +1,16 @@
 /*
- * "$Id: ipp-var.c 9793 2011-05-20 03:49:49Z mike $"
+ * "$Id: ipp-var.c 11890 2014-05-22 13:59:21Z msweet $"
  *
- *   CGI <-> IPP variable routines for CUPS.
+ * CGI <-> IPP variable routines for CUPS.
  *
- *   Copyright 2007-2011 by Apple Inc.
- *   Copyright 1997-2007 by Easy Software Products.
+ * Copyright 2007-2014 by Apple Inc.
+ * Copyright 1997-2007 by Easy Software Products.
  *
- *   These coded instructions, statements, and computer programs are the
- *   property of Apple Inc. and are protected by Federal copyright
- *   law.  Distribution and use rights are outlined in the file "LICENSE.txt"
- *   which should have been included with this file.  If this file is
- *   file is missing or damaged, see the license at "http://www.cups.org/".
- *
- * Contents:
- *
- *   cgiGetAttributes()    - Get the list of attributes that are needed by the
- *                           template file.
- *   cgiGetIPPObjects()    - Get the objects in an IPP response.
- *   cgiMoveJobs()         - Move one or more jobs.
- *   cgiPrintCommand()     - Print a CUPS command job.
- *   cgiPrintTestPage()    - Print a test page.
- *   cgiRewriteURL()       - Rewrite a printer URI into a web browser URL...
- *   cgiSetIPPObjectVars() - Set CGI variables from an IPP object.
- *   cgiSetIPPVars()       - Set CGI variables from an IPP response.
- *   cgiShowIPPError()     - Show the last IPP error message.
- *   cgiShowJobs()         - Show print jobs.
- *   cgiText()             - Return localized text.
+ * These coded instructions, statements, and computer programs are the
+ * property of Apple Inc. and are protected by Federal copyright
+ * law.  Distribution and use rights are outlined in the file "LICENSE.txt"
+ * which should have been included with this file.  If this file is
+ * file is missing or damaged, see the license at "http://www.cups.org/".
  */
 
 /*
@@ -129,7 +114,7 @@ cgiGetAttributes(ipp_t      *request,	/* I - IPP request */
       *nameptr = '\0';
 
       if (!strncmp(name, "printer_state_history", 21))
-        strcpy(name, "printer_state_history");
+        strlcpy(name, "printer_state_history", sizeof(name));
 
      /*
       * Possibly add it to the list of attributes...
@@ -554,7 +539,7 @@ cgiPrintCommand(http_t     *http,	/* I - Connection to server */
   ipp_t		*request,		/* Get-Job-Attributes request */
 		*response;		/* Get-Job-Attributes response */
   ipp_attribute_t *attr;		/* Current job attribute */
-  static const char const *job_attrs[] =/* Job attributes we want */
+  static const char * const job_attrs[] =/* Job attributes we want */
 		{
 		  "job-state",
 		  "job-printer-state-message"
@@ -792,7 +777,7 @@ cgiPrintTestPage(http_t     *http,	/* I - Connection to server */
   cgiStartHTML(cgiText(_("Print Test Page")));
 
   if (cupsLastError() > IPP_OK_CONFLICT)
-    cgiShowIPPError(_("Unable to print test page:"));
+    cgiShowIPPError(_("Unable to print test page"));
   else
   {
     cgiSetVariable("PRINTER_NAME", dest);
@@ -958,7 +943,6 @@ cgiSetIPPObjectVars(
 			*nameptr,	/* Pointer into name */
 			value[16384],	/* Value(s) */
 			*valptr;	/* Pointer into value */
-  struct tm		*date;		/* Date information */
 
 
   fprintf(stderr, "DEBUG2: cgiSetIPPObjectVars(obj=%p, prefix=\"%s\", "
@@ -1186,17 +1170,9 @@ cgiSetIPPObjectVars(
 	case IPP_TAG_INTEGER :
 	case IPP_TAG_ENUM :
 	    if (strncmp(name, "time_at_", 8) == 0)
-	    {
-	      time_t	t;		/* Temporary time value */
-
-              t    = (time_t)attr->values[i].integer;
-	      date = localtime(&t);
-
-	      strftime(valptr, sizeof(value) - (valptr - value), "%c", date);
-	    }
+	      _cupsStrDate(valptr, sizeof(value) - (size_t)(valptr - value), (time_t)ippGetInteger(attr, i));
 	    else
-	      snprintf(valptr, sizeof(value) - (valptr - value),
-		       "%d", attr->values[i].integer);
+	      snprintf(valptr, sizeof(value) - (size_t)(valptr - value), "%d", ippGetInteger(attr, i));
 	    break;
 
 	case IPP_TAG_BOOLEAN :
@@ -1219,7 +1195,7 @@ cgiSetIPPObjectVars(
 	             "%dx%d%s", attr->values[i].resolution.xres,
 		     attr->values[i].resolution.yres,
 		     attr->values[i].resolution.units == IPP_RES_PER_INCH ?
-			 "dpi" : "dpc");
+			 "dpi" : "dpcm");
 	    break;
 
 	case IPP_TAG_URI :
@@ -1432,7 +1408,7 @@ cgiShowJobs(http_t     *http,		/* I - Connection to server */
     ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_URI, "printer-uri", NULL,
         	 "ipp://localhost/");
 
-  if ((which_jobs = cgiGetVariable("which_jobs")) != NULL)
+  if ((which_jobs = cgiGetVariable("which_jobs")) != NULL && *which_jobs)
     ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_KEYWORD, "which-jobs",
                  NULL, which_jobs);
 
@@ -1480,10 +1456,11 @@ cgiShowJobs(http_t     *http,		/* I - Connection to server */
     if (first < 0)
       first = 0;
 
-    if ((var = cgiGetVariable("ORDER")) != NULL)
+    if ((var = cgiGetVariable("ORDER")) != NULL && *var)
       ascending = !_cups_strcasecmp(var, "asc");
     else
-      ascending = !which_jobs || !_cups_strcasecmp(which_jobs, "not-completed");
+      ascending = !which_jobs || !*which_jobs ||
+                  !_cups_strcasecmp(which_jobs, "not-completed");
 
     section = cgiGetVariable("SECTION");
 
@@ -1588,5 +1565,5 @@ cgiText(const char *message)		/* I - Message */
 
 
 /*
- * End of "$Id: ipp-var.c 9793 2011-05-20 03:49:49Z mike $".
+ * End of "$Id: ipp-var.c 11890 2014-05-22 13:59:21Z msweet $".
  */

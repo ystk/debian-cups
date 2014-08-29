@@ -1,5 +1,5 @@
 //
-// "$Id: ppdc.h 10338 2012-03-07 06:05:39Z mike $"
+// "$Id: ppdc.h 3755 2012-03-30 05:59:14Z msweet $"
 //
 //   Definitions for the CUPS PPD Compiler.
 //
@@ -529,5 +529,5 @@ class ppdcSource			//// Source File
 #endif // !_PPDC_H_
 
 //
-// End of "$Id: ppdc.h 10338 2012-03-07 06:05:39Z mike $".
+// End of "$Id: ppdc.h 3755 2012-03-30 05:59:14Z msweet $".
 //

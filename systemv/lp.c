@@ -1,9 +1,9 @@
 /*
- * "$Id: lp.c 9636 2011-03-21 22:02:00Z mike $"
+ * "$Id: lp.c 11101 2013-07-08 11:20:33Z msweet $"
  *
  *   "lp" command for CUPS.
  *
- *   Copyright 2007-2011 by Apple Inc.
+ *   Copyright 2007-2013 by Apple Inc.
  *   Copyright 1997-2007 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -46,7 +46,7 @@ main(int  argc,				/* I - Number of command-line arguments */
   int		i, j;			/* Looping vars */
   int		job_id;			/* Job ID */
   char		*printer,		/* Printer name */
-		*instance,		/* Instance name */ 
+		*instance,		/* Instance name */
 		*val,			/* Option value */
 		*title;			/* Job title */
   int		priority;		/* Job priority (1-100) */
@@ -121,7 +121,7 @@ main(int  argc,				/* I - Number of command-line arguments */
               cupsSetUser(argv[i]);
 	    }
 	    break;
-	    
+
         case 'c' : /* Copy to spool dir (always enabled) */
 	    break;
 
@@ -146,7 +146,8 @@ main(int  argc,				/* I - Number of command-line arguments */
             if ((instance = strrchr(printer, '/')) != NULL)
 	      *instance++ = '\0';
 
-            if ((dest = cupsGetNamedDest(NULL, printer, instance)) != NULL)
+            if ((dest = cupsGetNamedDest(CUPS_HTTP_DEFAULT, printer,
+                                         instance)) != NULL)
 	    {
 	      for (j = 0; j < dest->num_options; j ++)
 	        if (cupsGetOption(dest->options[j].name, num_options,
@@ -154,6 +155,14 @@ main(int  argc,				/* I - Number of command-line arguments */
 	          num_options = cupsAddOption(dest->options[j].name,
 		                              dest->options[j].value,
 					      num_options, &options);
+	    }
+	    else if (cupsLastError() == IPP_STATUS_ERROR_BAD_REQUEST ||
+		     cupsLastError() == IPP_STATUS_ERROR_VERSION_NOT_SUPPORTED)
+	    {
+	      _cupsLangPrintf(stderr,
+			      _("%s: Error - add '/version=1.1' to server "
+				"name."), argv[0]);
+	      return (1);
 	    }
 	    break;
 
@@ -489,6 +498,13 @@ main(int  argc,				/* I - Number of command-line arguments */
 	    break;
 
         case '-' : /* Stop processing options */
+            if (argv[i][2])
+            {
+	      _cupsLangPrintf(stderr, _("%s: Error - unknown option \"%s\"."),
+			      argv[0], argv[i]);
+	      return (1);
+	    }
+
 	    end_options = 1;
 	    break;
 
@@ -560,6 +576,14 @@ main(int  argc,				/* I - Number of command-line arguments */
 		                      dest->options[j].value,
 				      num_options, &options);
     }
+    else if (cupsLastError() == IPP_STATUS_ERROR_BAD_REQUEST ||
+	     cupsLastError() == IPP_STATUS_ERROR_VERSION_NOT_SUPPORTED)
+    {
+      _cupsLangPrintf(stderr,
+		      _("%s: Error - add '/version=1.1' to server "
+			"name."), argv[0]);
+      return (1);
+    }
   }
 
   if (printer == NULL)
@@ -605,7 +629,6 @@ main(int  argc,				/* I - Number of command-line arguments */
     const char		*format;	/* Document format */
     ssize_t		bytes;		/* Bytes read */
 
-
     if (cupsGetOption("raw", num_options, options))
       format = CUPS_FORMAT_RAW;
     else if ((format = cupsGetOption("document-format", num_options,
@@ -623,11 +646,17 @@ main(int  argc,				/* I - Number of command-line arguments */
     {
       _cupsLangPrintf(stderr, _("%s: Error - unable to queue from stdin - %s."),
 		      argv[0], httpStatus(status));
+      cupsFinishDocument(CUPS_HTTP_DEFAULT, printer);
+      cupsCancelJob2(CUPS_HTTP_DEFAULT, printer, job_id, 0);
       return (1);
     }
 
     if (cupsFinishDocument(CUPS_HTTP_DEFAULT, printer) != IPP_OK)
-      job_id = 0;
+    {
+      _cupsLangPrintf(stderr, "%s: %s", argv[0], cupsLastErrorString());
+      cupsCancelJob2(CUPS_HTTP_DEFAULT, printer, job_id, 0);
+      return (1);
+    }
   }
 
   if (job_id < 1)
@@ -667,7 +696,15 @@ restart_job(const char *command,	/* I - Command name */
 
   ippDelete(cupsDoRequest(CUPS_HTTP_DEFAULT, request, "/jobs"));
 
-  if (cupsLastError() > IPP_OK_CONFLICT)
+  if (cupsLastError() == IPP_STATUS_ERROR_BAD_REQUEST ||
+      cupsLastError() == IPP_STATUS_ERROR_VERSION_NOT_SUPPORTED)
+  {
+    _cupsLangPrintf(stderr,
+		    _("%s: Error - add '/version=1.1' to server "
+		      "name."), command);
+    return (1);
+  }
+  else if (cupsLastError() > IPP_OK_CONFLICT)
   {
     _cupsLangPrintf(stderr, "%s: %s", command, cupsLastErrorString());
     return (1);
@@ -708,7 +745,15 @@ set_job_attrs(const char    *command,	/* I - Command name */
 
   ippDelete(cupsDoRequest(CUPS_HTTP_DEFAULT, request, "/jobs"));
 
-  if (cupsLastError() > IPP_OK_CONFLICT)
+  if (cupsLastError() == IPP_STATUS_ERROR_BAD_REQUEST ||
+      cupsLastError() == IPP_STATUS_ERROR_VERSION_NOT_SUPPORTED)
+  {
+    _cupsLangPrintf(stderr,
+		    _("%s: Error - add '/version=1.1' to server "
+		      "name."), command);
+    return (1);
+  }
+  else if (cupsLastError() > IPP_OK_CONFLICT)
   {
     _cupsLangPrintf(stderr, "%s: %s", command, cupsLastErrorString());
     return (1);
@@ -719,5 +764,5 @@ set_job_attrs(const char    *command,	/* I - Command name */
 
 
 /*
- * End of "$Id: lp.c 9636 2011-03-21 22:02:00Z mike $".
+ * End of "$Id: lp.c 11101 2013-07-08 11:20:33Z msweet $".
  */

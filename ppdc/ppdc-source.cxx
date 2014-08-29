@@ -1,9 +1,9 @@
 //
-// "$Id: ppdc-source.cxx 10379 2012-03-23 22:16:22Z mike $"
+// "$Id: ppdc-source.cxx 4167 2013-02-04 19:27:13Z msweet $"
 //
 //   Source class for the CUPS PPD Compiler.
 //
-//   Copyright 2007-2012 by Apple Inc.
+//   Copyright 2007-2013 by Apple Inc.
 //   Copyright 2002-2007 by Easy Software Products.
 //
 //   These coded instructions, statements, and computer programs are the
@@ -66,10 +66,8 @@
 #include <unistd.h>
 #include <cups/raster.h>
 #include "data/epson.h"
-#include "data/escp.h"
 #include "data/hp.h"
 #include "data/label.h"
-#include "data/pcl.h"
 #ifndef WIN32
 #  include <sys/utsname.h>
 #endif // !WIN32
@@ -945,7 +943,7 @@ ppdcSource::get_filter(ppdcFile *fp)	// I - File to read
     while (isspace(*ptr))
       ptr ++;
 
-    strcpy(program, ptr);
+    strlcpy(program, ptr, sizeof(program));
   }
   else
   {
@@ -1708,7 +1706,7 @@ ppdcSource::get_po(ppdcFile *fp)	// I - File to read
   if ((baseptr = strrchr(basedir, '/')) != NULL)
     *baseptr = '\0';
   else
-    strcpy(basedir, ".");
+    strlcpy(basedir, ".", sizeof(basedir));
 
   // Find the po file...
   pofilename[0] = '\0';
@@ -2294,7 +2292,7 @@ ppdcSource::quotef(cups_file_t *fp,	// I - File to write to
 	    if ((format - bufformat + 1) > (int)sizeof(tformat))
 	      break;
 
-	    strncpy(tformat, bufformat, format - bufformat);
+	    memcpy(tformat, bufformat, format - bufformat);
 	    tformat[format - bufformat] = '\0';
 
 	    bytes += cupsFilePrintf(fp, tformat, va_arg(ap, double));
@@ -2311,7 +2309,7 @@ ppdcSource::quotef(cups_file_t *fp,	// I - File to write to
 	    if ((format - bufformat + 1) > (int)sizeof(tformat))
 	      break;
 
-	    strncpy(tformat, bufformat, format - bufformat);
+	    memcpy(tformat, bufformat, format - bufformat);
 	    tformat[format - bufformat] = '\0';
 
 #  ifdef HAVE_LONG_LONG
@@ -2329,7 +2327,7 @@ ppdcSource::quotef(cups_file_t *fp,	// I - File to write to
 	    if ((format - bufformat + 1) > (int)sizeof(tformat))
 	      break;
 
-	    strncpy(tformat, bufformat, format - bufformat);
+	    memcpy(tformat, bufformat, format - bufformat);
 	    tformat[format - bufformat] = '\0';
 
 	    bytes += cupsFilePrintf(fp, tformat, va_arg(ap, void *));
@@ -2632,7 +2630,7 @@ ppdcSource::scan_file(ppdcFile   *fp,	// I - File to read
       if ((baseptr = strrchr(basedir, '/')) != NULL)
 	*baseptr = '\0';
       else
-	strcpy(basedir, ".");
+	strlcpy(basedir, ".", sizeof(basedir));
 
       // Find the include file...
       if (find_include(inctemp, basedir, incname, sizeof(incname)))
@@ -3552,64 +3550,6 @@ ppdcSource::write_file(const char *f)	// I - File to write
     {
       switch (d->type)
       {
-        case PPDC_DRIVER_ESCP :
-	    cupsFilePuts(fp, "  ModelNumber (");
-
-	    if (d->model_number & ESCP_DOTMATRIX)
-	      cupsFilePuts(fp, " $ESCP_DOTMATRIX");
-	    if (d->model_number & ESCP_MICROWEAVE)
-	      cupsFilePuts(fp, " $ESCP_MICROWEAVE");
-	    if (d->model_number & ESCP_STAGGER)
-	      cupsFilePuts(fp, " $ESCP_STAGGER");
-	    if (d->model_number & ESCP_ESCK)
-	      cupsFilePuts(fp, " $ESCP_ESCK");
-	    if (d->model_number & ESCP_EXT_UNITS)
-	      cupsFilePuts(fp, " $ESCP_EXT_UNITS");
-	    if (d->model_number & ESCP_EXT_MARGINS)
-	      cupsFilePuts(fp, " $ESCP_EXT_MARGINS");
-	    if (d->model_number & ESCP_USB)
-	      cupsFilePuts(fp, " $ESCP_USB");
-	    if (d->model_number & ESCP_PAGE_SIZE)
-	      cupsFilePuts(fp, " $ESCP_PAGE_SIZE");
-	    if (d->model_number & ESCP_RASTER_ESCI)
-	      cupsFilePuts(fp, " $ESCP_RASTER_ESCI");
-	    if (d->model_number & ESCP_REMOTE)
-	      cupsFilePuts(fp, " $ESCP_REMOTE");
-
-	    cupsFilePuts(fp, ")\n");
-	    break;
-
-	case PPDC_DRIVER_PCL :
-	    cupsFilePuts(fp, "  ModelNumber (");
-
-	    if (d->model_number & PCL_PAPER_SIZE)
-	      cupsFilePuts(fp, " $PCL_PAPER_SIZE");
-	    if (d->model_number & PCL_INKJET)
-	      cupsFilePuts(fp, " $PCL_INKJET");
-	    if (d->model_number & PCL_RASTER_END_COLOR)
-	      cupsFilePuts(fp, " $PCL_RASTER_END_COLOR");
-	    if (d->model_number & PCL_RASTER_CID)
-	      cupsFilePuts(fp, " $PCL_RASTER_CID");
-	    if (d->model_number & PCL_RASTER_CRD)
-	      cupsFilePuts(fp, " $PCL_RASTER_CRD");
-	    if (d->model_number & PCL_RASTER_SIMPLE)
-	      cupsFilePuts(fp, " $PCL_RASTER_SIMPLE");
-	    if (d->model_number & PCL_RASTER_RGB24)
-	      cupsFilePuts(fp, " $PCL_RASTER_RGB24");
-	    if (d->model_number & PCL_PJL)
-	      cupsFilePuts(fp, " $PCL_PJL");
-	    if (d->model_number & PCL_PJL_PAPERWIDTH)
-	      cupsFilePuts(fp, " $PCL_PJL_PAPERWIDTH");
-	    if (d->model_number & PCL_PJL_HPGL2)
-	      cupsFilePuts(fp, " $PCL_PJL_HPGL2");
-	    if (d->model_number & PCL_PJL_PCL3GUI)
-	      cupsFilePuts(fp, " $PCL_PJL_PCL3GUI");
-	    if (d->model_number & PCL_PJL_RESOLUTION)
-	      cupsFilePuts(fp, " $PCL_PJL_RESOLUTION");
-
-	    cupsFilePuts(fp, ")\n");
-	    break;
-
 	case PPDC_DRIVER_LABEL :
 	    cupsFilePuts(fp, "  ModelNumber ");
 
@@ -3907,5 +3847,5 @@ ppdcSource::write_file(const char *f)	// I - File to write
 
 
 //
-// End of "$Id: ppdc-source.cxx 10379 2012-03-23 22:16:22Z mike $".
+// End of "$Id: ppdc-source.cxx 4167 2013-02-04 19:27:13Z msweet $".
 //

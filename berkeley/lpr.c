@@ -1,9 +1,9 @@
 /*
- * "$Id: lpr.c 9636 2011-03-21 22:02:00Z mike $"
+ * "$Id: lpr.c 11101 2013-07-08 11:20:33Z msweet $"
  *
  *   "lpr" command for CUPS.
  *
- *   Copyright 2007-2011 by Apple Inc.
+ *   Copyright 2007-2013 by Apple Inc.
  *   Copyright 1997-2007 by Easy Software Products.
  *
  *   These coded instructions, statements, and computer programs are the
@@ -61,6 +61,7 @@ main(int  argc,				/* I - Number of command-line arguments */
 
   for (i = 1; i < argc; i ++)
     if (argv[i][0] == '-')
+    {
       switch (ch = argv[i][1])
       {
         case 'E' : /* Encrypt */
@@ -89,7 +90,7 @@ main(int  argc,				/* I - Number of command-line arguments */
               cupsSetUser(argv[i]);
 	    }
 	    break;
-	    
+
         case 'H' : /* Connect to host */
 	    if (argv[i][2] != '\0')
               cupsSetServer(argv[i] + 2);
@@ -226,6 +227,14 @@ main(int  argc,				/* I - Number of command-line arguments */
 		                              dest->options[j].value,
 					      num_options, &options);
 	    }
+	    else if (cupsLastError() == IPP_STATUS_ERROR_BAD_REQUEST ||
+		     cupsLastError() == IPP_STATUS_ERROR_VERSION_NOT_SUPPORTED)
+	    {
+	      _cupsLangPrintf(stderr,
+			      _("%s: Error - add '/version=1.1' to server "
+				"name."), argv[0]);
+	      return (1);
+	    }
 	    break;
 
 	case '#' : /* Number of copies */
@@ -275,6 +284,7 @@ main(int  argc,				/* I - Number of command-line arguments */
 			    argv[i][1]);
 	    return (1);
       }
+    }
     else if (num_files < 1000)
     {
      /*
@@ -319,6 +329,14 @@ main(int  argc,				/* I - Number of command-line arguments */
 	  num_options = cupsAddOption(dest->options[j].name,
 		                      dest->options[j].value,
 				      num_options, &options);
+    }
+    else if (cupsLastError() == IPP_STATUS_ERROR_BAD_REQUEST ||
+	     cupsLastError() == IPP_STATUS_ERROR_VERSION_NOT_SUPPORTED)
+    {
+      _cupsLangPrintf(stderr,
+		      _("%s: Error - add '/version=1.1' to server "
+			"name."), argv[0]);
+      return (1);
     }
   }
 
@@ -377,7 +395,6 @@ main(int  argc,				/* I - Number of command-line arguments */
     const char		*format;	/* Document format */
     ssize_t		bytes;		/* Bytes read */
 
-
     if (cupsGetOption("raw", num_options, options))
       format = CUPS_FORMAT_RAW;
     else if ((format = cupsGetOption("document-format", num_options,
@@ -395,11 +412,17 @@ main(int  argc,				/* I - Number of command-line arguments */
     {
       _cupsLangPrintf(stderr, _("%s: Error - unable to queue from stdin - %s."),
 		      argv[0], httpStatus(status));
+      cupsFinishDocument(CUPS_HTTP_DEFAULT, printer);
+      cupsCancelJob2(CUPS_HTTP_DEFAULT, printer, job_id, 0);
       return (1);
     }
 
     if (cupsFinishDocument(CUPS_HTTP_DEFAULT, printer) != IPP_OK)
-      job_id = 0;
+    {
+      _cupsLangPrintf(stderr, "%s: %s", argv[0], cupsLastErrorString());
+      cupsCancelJob2(CUPS_HTTP_DEFAULT, printer, job_id, 0);
+      return (1);
+    }
   }
 
   if (job_id < 1)
@@ -413,5 +436,5 @@ main(int  argc,				/* I - Number of command-line arguments */
 
 
 /*
- * End of "$Id: lpr.c 9636 2011-03-21 22:02:00Z mike $".
+ * End of "$Id: lpr.c 11101 2013-07-08 11:20:33Z msweet $".
  */

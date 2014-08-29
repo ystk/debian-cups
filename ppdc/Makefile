@@ -1,9 +1,9 @@
 #
-# "$Id: Makefile 9422 2011-01-06 22:20:15Z mike $"
+# "$Id: Makefile 4216 2013-03-11 13:57:36Z msweet $"
 #
 #   Makefile for the CUPS PPD Compiler.
 #
-#   Copyright 2007-2011 by Apple Inc.
+#   Copyright 2007-2012 by Apple Inc.
 #   Copyright 2002-2006 by Easy Software Products.
 #
 #   These coded instructions, statements, and computer programs are the
@@ -112,7 +112,7 @@ clean:
 #
 
 depend:
-	makedepend -Y -I.. -fDependencies $(OBJS:.o=.cxx) >/dev/null 2>&1
+	$(CXX) -MM $(ALL_CXXFLAGS) $(OBJS:.o=.cxx) >Dependencies
 
 
 #
@@ -145,6 +145,7 @@ install-exec:
 		$(INSTALL_DIR) $(SYMROOT); \
 		for file in $(EXECTARGETS); do \
 			cp $$file $(SYMROOT); \
+			dsymutil $(SYMROOT)/$$file; \
 		done \
 	fi
 
@@ -178,6 +179,7 @@ install-libs: $(INSTALLSTATIC)
 	if test "x$(SYMROOT)" != "x"; then \
 		$(INSTALL_DIR) $(SYMROOT); \
 		cp $(LIBCUPSPPDC) $(SYMROOT); \
+		dsymutil $(SYMROOT)/$(LIBCUPSPPDC); \
 	fi
 
 installstatic:
@@ -400,5 +402,5 @@ include Dependencies
 
 
 #
-# End of "$Id: Makefile 9422 2011-01-06 22:20:15Z mike $".
+# End of "$Id: Makefile 4216 2013-03-11 13:57:36Z msweet $".
 #
