@@ -1,3 +1,128 @@
+cups (1.7.5-11) unstable; urgency=medium
+
+  * Backport upstream patch to fix cupsRasterReadPixels buffer overflow with
+    invalid page header and compressed raster data
+    (STR: #4551, Closes: #778387)
+
+ -- Didier Raboud <odyx@debian.org>  Mon, 16 Feb 2015 08:19:17 +0100
+
+cups (1.7.5-10) unstable; urgency=medium
+
+  * Change ppd-updaters trigger to use interest-noawait instead of interest to
+    avoid trigger cycles (Closes: #772871, #771765)
+
+ -- Didier Raboud <odyx@debian.org>  Mon, 15 Dec 2014 22:22:33 +0100
+
+cups (1.7.5-9) unstable; urgency=medium
+
+  * Drop color-management patch; it got refused by upstream and is not
+    available in non-english translations (Closes: #763517, #768163)
+  * Drop the upstream patch to limit Get-Jobs replies to 500, as this triggers
+    a FTBS on mips
+
+ -- Didier Raboud <odyx@debian.org>  Thu, 27 Nov 2014 20:44:45 +0100
+
+cups (1.7.5-8) unstable; urgency=medium
+
+  * Add a USB quirk fix for Brother HL-1250 (Closes: #712512)
+  * Backport upstream patch to fix random crash in TLS handling. The patch also
+    enables coredumps.(Closes: #760475, #760476)
+
+ -- Didier Raboud <odyx@debian.org>  Sun, 23 Nov 2014 13:26:24 +0100
+
+cups (1.7.5-7) unstable; urgency=medium
+
+  * Revert to not socket-activating CUPS (Closes: #747073)
+    - Drop patch to let CUPS write the systemd.socket configuration files
+    - Replace preinst generation of the same configuration file, delete them on
+      upgrade
+    - Drop the symlink enforcing the automatic configuration
+    - Update NEWS and README.Debian to reflect that change
+    - Create two cups socket configuration examples, document their existence
+      in README.Debian
+    - Update the systemd socket activation patch to include
+      PassCredentials=true in the socket configuration, following upstream's
+      feedback
+    - Disable automatic idle exit timeout under systemd, as this will get
+      activated without socket activation
+
+ -- Didier Raboud <odyx@debian.org>  Thu, 23 Oct 2014 22:06:18 +0200
+
+cups (1.7.5-6) unstable; urgency=medium
+
+  * Backport several upstream patches:
+    - Update the patch restoring the access to cupsd.conf with Upstream's
+      latest
+    - Fix the icon display in web interface during server restart (STR: #4475)
+    - Enforce correct newest-to-oldest order in the completed jobs returned by
+      the scheduler (STR: #4396)
+    - Limit Get-Jobs replies to 500 jobs (STR: #2913)
+    - Do not let cupsGetPPD* return a symlink if it was not readable by the
+      user (STR: #4500). This should help with #764253.
+  * Dropped the FINAL_CONTENT_TYPE revert, stick back to upstream, following
+    RedHat's analysis
+  * Add tests' patch to ignore the 'Address family not supported' that breaks
+    the errorlines counting on buildds without a working IPv6 stack
+
+ -- Didier Raboud <odyx@debian.org>  Wed, 22 Oct 2014 13:44:42 +0200
+
+cups (1.7.5-5) unstable; urgency=medium
+
+  [ Didier Raboud ]
+  * In debian/rules, add conditionals to enable build-indep build
+  * Bump Standards-Version to 3.9.6 without changes needed
+  * Remove Martin Pitt, Masayuki Hatta and Jeff Licquia from the Uploaders'
+    field; with many thanks for their past work on CUPS.
+
+  [ Ondřej Surý ]
+  * Remove libjpeg8-dev from libcupsimage2-dev (Closes: #765919)
+
+ -- Didier Raboud <odyx@debian.org>  Mon, 20 Oct 2014 08:54:21 +0200
+
+cups (1.7.5-4) unstable; urgency=medium
+
+  [ intrigeri ]
+  * In the apparmor profile, drop features yet unsupported in Debian
+    (Closes: #763673)
+
+  [ Didier Raboud ]
+  * Add the Ubuntu-specific apparmor profile as Ubuntu-specific patch
+
+ -- Didier Raboud <odyx@debian.org>  Wed, 01 Oct 2014 21:40:15 +0200
+
+cups (1.7.5-3) unstable; urgency=medium
+
+  [ Didier Raboud ]
+  * Add two USB quirk fixes for Canon MX310 and MX320 printers
+    (LP: #1346868, #1369547)
+
+  [ Jamie Strandboge ]
+  * Update the apparmor-profile
+    - move Ux to Cx -> third_party and provie a third_party child profile. In
+      this manner, we can add some modest confinement (can't change MAC
+      policy, change_profile or mount) but more importantly it allows us to
+      specify peer=third_party to restrict where the strictly confined cups
+      process can send signals (LP: #1370930)
+    - allow r of /var/cache/samba/*.tdb (LP: #1371097)
+    - allow r of /var/{cache,lib}/samba/printing/printers.tdb
+
+ -- Didier Raboud <odyx@debian.org>  Tue, 30 Sep 2014 08:21:21 +0200
+
+cups (1.7.5-2) unstable; urgency=medium
+
+  [ Helge Kreutzmann ]
+  * Update German man page (1537t)
+
+  [ Till Kamppeter ]
+  * Updated color management extension patch to the newest version from Joseph
+    Simon, especially to fix PPD updates via the web interface (LP: #1362321).
+
+  [ Didier Raboud ]
+  * Replace the RedHat patch restoring the access to cupsd.conf and logfiles
+    with upstream's
+
+ -- Didier Raboud <odyx@debian.org>  Wed, 17 Sep 2014 13:37:01 +0200
+
 cups (1.7.5-1) unstable; urgency=medium
 
   * New 1.7.5 upstream release

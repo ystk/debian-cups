@@ -1,4 +1,10 @@
 # patches accepted and committed upstream
+str4396-make-scheduler-return-completed-jobs-in-correct-order.patch
+str4461-restore-access-to-logfiles.patch
+str4475-fix-the-spinner-imager-on-restart.patch
+str4484-fix-random-crash-in-scheduler.patch
+str4500-cupsGetPPD3-Only-use-symlink-if-file-is-readable-STR.patch
+str4551-fix-buffer-overflow-in-cupsRasterReadPixels.patch
 
 # patches sent upstream
 pwg-raster-attributes.patch
@@ -7,10 +13,10 @@ rootbackends-worldreadable.patch
 fixes-for-jobs-with-multiple-files-and-multiple-formats.patch
 cupsd-idleexittimeout.patch
 cups-no-gcrypt.patch
-cups-restore-access-to-logfiles.patch
+canon-mx3x0-quirks.patch
+brother-hl-1250-quirks.patch
 
 # patches which should go upstream
-color-management-extension.patch
 systemd-optional-socket-activation.patch
 cupsd-upstart-support.patch
 # Fix tests, should probably go upstream
@@ -18,6 +24,7 @@ tests-ignore-warnings.patch
 tests-ignore-usb-crash.patch
 tests-ignore-kfreebsd-amd64-not-a-pdf.patch
 tests-ignore-system-bus-failure.patch
+tests-ignore-ipv6-address-family-not-supported.patch
 test-i18n-nonlinux.patch
 tests-wait-on-unfinished-jobs-everytime.patch
 tests-fix-ppdLocalize-on-unclean-env.patch
@@ -36,7 +43,6 @@ ppd-poll-with-client-conf.patch
 removecvstag.patch
 
 # Debian patches
-revert-upstream-change-to-FINAL_CONTENT_TYPE-to-fix-printing-to-remote-CUPS-servers.patch
 do-not-broadcast-with-hostnames.patch
 reactivate_recommended_driver.patch
 add-ipp-backend-of-cups-1.4.patch
@@ -51,7 +57,6 @@ cupsd-set-default-for-SyncOnClose-to-Yes.patch
 man-cups-lpd-drop-dangling-references.patch
 cupsd-idleexittimeout-systemd.patch
 cupsd-idleexittimeout-upstart.patch
-cupsd-write-systemd-Port.patch
 lppasswd-manpage-mention-dpkg-statoverride.patch
 debianize_cups-config.patch
 
