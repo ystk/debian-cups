@@ -1,3 +1,10 @@
+cups (1.4.4-7+squeeze7) squeeze-lts; urgency=medium
+
+  * Backport upstream patches to fix:
+    - Buffer overflow in cupsRasterReadPixels (STR #4551), fixes CVE-2014-2679
+
+ -- Ben Hutchings <ben@decadent.org.uk>  Fri, 27 Feb 2015 03:19:52 +0000
+
 cups (1.4.4-7+squeeze6) squeeze-lts; urgency=medium
 
   * Backport upstream patches to fix:

@@ -1,0 +1,47 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## str4551-fix-buffer-overflow-in-cupsRasterReadPixels.dpatch by Michael Sweet <msweet@apple.com>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Description: Fix cupsRasterReadPixels buffer overflow with invalid page header
+## DP:  and compressed raster data
+## DP: Author: Michael Sweet <msweet@apple.com>
+## DP: Bug-Debian: https://bugs.debian.org/778387
+## DP: Bug-Upstream: https://www.cups.org/str.php?L4551
+## DP: Bug-CVE: CVE-2014-2679
+## DP: Last-Update: 2015-02-16
+
+@DPATCH@
+diff -urNad '--exclude=CVS' '--exclude=.svn' '--exclude=.git' '--exclude=.arch' '--exclude=.hg' '--exclude=_darcs' '--exclude=.bzr' cups~/filter/raster.c cups/filter/raster.c
+--- cups~/filter/raster.c	2015-02-16 09:08:08.000000000 +0100
++++ cups/filter/raster.c	2015-02-16 09:11:17.000000000 +0100
+@@ -239,7 +239,10 @@
+   */
+ 
+   if (!cups_raster_read_header(r))
++  {
++    memset(h, 0, sizeof(cups_page_header_t));
+     return (0);
++  }
+   
+  /*
+   * Copy the header to the user-supplied buffer...
+@@ -268,7 +271,10 @@
+   */
+ 
+   if (!cups_raster_read_header(r))
++  {
++    memset(h, 0, sizeof(cups_page_header2_t));
+     return (0);
++  }
+   
+  /*
+   * Copy the header to the user-supplied buffer...
+@@ -991,7 +997,7 @@
+ 
+   cups_raster_update(r);
+ 
+-  return (r->header.cupsBytesPerLine != 0 && r->header.cupsHeight != 0);
++  return (r->header.cupsBytesPerLine != 0 && r->header.cupsHeight != 0 && (r->header.cupsBytesPerLine % r->bpp) == 0);
+ }
+ 
+ 

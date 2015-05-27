@@ -1,0 +1,35 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## add-some-range-checking-probably-more-to-come-to-avo.dpatch
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Description: Add some range checking (probably more to come) to avoid
+## DP:  divide-by-0 errors.  From
+## DP:  svn+ssh://src.apple.com/svn/cups/cups.org/trunk@9876 via
+## DP:  git commit 6c087a72a0708bcb7929955c75770ee364755c42.
+## DP:  Dependency of str4551-fix-buffer-overflow-in-cupsRasterReadPixels.dpatch
+## DP: Author: mike
+## DP: Bug-Debian: https://bugs.debian.org/778387
+## DP: Last-Update: 2015-02-27
+
+@DPATCH@
+--- a/filter/raster.c
++++ b/filter/raster.c
+@@ -302,7 +302,8 @@ cupsRasterReadPixels(cups_raster_t *r,	/* I - Raster stream */
+   int		count;			/* Repetition count */
+ 
+ 
+-  if (r == NULL || r->mode != CUPS_RASTER_READ || r->remaining == 0)
++  if (r == NULL || r->mode != CUPS_RASTER_READ || r->remaining == 0 ||
++      r->header.cupsBytesPerLine == 0)
+     return (0);
+ 
+   if (!r->compressed)
+@@ -756,7 +757,7 @@ cups_raster_read_header(
+ 
+   cups_raster_update(r);
+ 
+-  return (1);
++  return (r->header.cupsBytesPerLine != 0 && r->header.cupsHeight != 0);
+ }
+ 
+ 
