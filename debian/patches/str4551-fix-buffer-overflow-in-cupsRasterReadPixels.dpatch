@@ -7,7 +7,7 @@
 ## DP: Author: Michael Sweet <msweet@apple.com>
 ## DP: Bug-Debian: https://bugs.debian.org/778387
 ## DP: Bug-Upstream: https://www.cups.org/str.php?L4551
-## DP: Bug-CVE: CVE-2014-2679
+## DP: Bug-CVE: CVE-2014-9679
 ## DP: Last-Update: 2015-02-16
 
 @DPATCH@

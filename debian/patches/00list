@@ -1,5 +1,6 @@
 # patches accepted and committed upstream for next 1.4:
 CVE-2010-2941.dpatch
+str4609-prevent-privilege-escalation-through-dynamic-linker.dpatch
 
 # patches backported from upstream SVN trunk for 1.6:
 fix-xss-in-cups-webinterface-str43576.dpatch
@@ -57,3 +58,4 @@ str3867.dpatch
 str3914.dpatch
 split-configuration-files-STR4223.dpatch
 translate_cups_files_manpage.dpatch
+CVE-2015-3258-CVE-2015-3279.dpatch

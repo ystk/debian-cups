@@ -1,3 +1,28 @@
+cups (1.4.4-7+squeeze10) squeeze-lts; urgency=medium
+
+  * Fix buffer overflow on size allocation of texttopdf.
+    Updated debian/local/filters/pdf-filters/filter/texttopdf.c
+    - CVE-2015-3258: Heap-based buffer overflow in the WriteProlog
+      function.
+    - CVE-2015-3279: Integer overflow.
+
+ -- Santiago Ruano Rincón <santiagorr@riseup.net>  Wed, 23 Sep 2015 21:58:32 -0300
+
+cups (1.4.4-7+squeeze9) squeeze-lts; urgency=medium
+
+  * Add the previous patch name into debian/patches/00list, it wasn't applied
+
+ -- Didier Raboud <odyx@debian.org>  Sat, 18 Jul 2015 12:40:10 +0200
+
+cups (1.4.4-7+squeeze8) squeeze-lts; urgency=medium
+
+  * Import 1.4 upstream fix for CERT VU#810572: Privilege escalation through
+    dynamic linker and isolated vulnerabilities: STR: #4609, VU#810572
+    - CVE-2015-1158 - Improper Update of Reference Count
+    - CVE-2015-1159 - Cross-Site Scripting
+
+ -- Didier Raboud <odyx@debian.org>  Tue, 09 Jun 2015 10:05:40 +0200
+
 cups (1.4.4-7+squeeze7) squeeze-lts; urgency=medium
 
   * Backport upstream patches to fix:
