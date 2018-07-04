@@ -66,3 +66,5 @@ debianize_cups-config.patch
 # po4a might not be appropriate. It also needs to be high on the patch
 # queue to catch all Debian-specific changes
 manpage-translations.patch
+CVE-2017-18190-Dont-treat-localhost.localdomain-as-replacement-for-localhost.patch
+CVE-2017-18248-6007df3.patch
