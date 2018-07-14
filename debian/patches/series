@@ -68,3 +68,4 @@ debianize_cups-config.patch
 manpage-translations.patch
 CVE-2017-18190-Dont-treat-localhost.localdomain-as-replacement-for-localhost.patch
 CVE-2017-18248-6007df3.patch
+CVE-2018-418x.patch

@@ -1,3 +1,13 @@
+cups (1.7.5-11+deb8u4) jessie-security; urgency=medium
+
+  * Non-maintainer upload by the LTS team.
+  * CVE-2018-4180: Local Privilege Escalation to Root in dnssd Backend (CUPS_SERVERBIN)
+    CVE-2018-4181: Limited Local File Reads as Root via cupsd.conf Include Directive
+    - Backported patch taken from Ubuntu.
+  * CVE-2018-6553: Fix AppArmor cupsd sandbox bypass due to use of hard links
+
+ -- Emilio Pozuelo Monfort <pochu@debian.org>  Fri, 13 Jul 2018 13:05:13 +0200
+
 cups (1.7.5-11+deb8u3) jessie-security; urgency=high
 
   * Non-maintainer upload by the Security Team.
