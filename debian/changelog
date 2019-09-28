@@ -1,3 +1,11 @@
+cups (1.7.5-11+deb8u6) jessie-security; urgency=medium
+
+  * Non-maintainer upload by the LTS Team. 
+  * CVE-2018-4300
+    Linux session cookies used a predictable random number seed.
+
+ -- Thorsten Alteholz <debian@alteholz.de>  Thu, 26 Sep 2019 19:03:02 +0200
+
 cups (1.7.5-11+deb8u5) jessie-security; urgency=medium
 
   * Non-maintainer upload by the LTS Team. 
