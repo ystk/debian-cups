@@ -1,3 +1,15 @@
+cups (1.7.5-11+deb8u8) jessie-security; urgency=high
+
+  * Non-maintainer upload by the LTS Team.
+  * Add patch to fix:
+    CVE-2020-3898: The `ppdOpen` function did not handle invalid UI
+                   constraint. `ppdcSource::get_resolution` function
+                   did not handle invalid resolution strings.
+    CVE-2019-8842: The `ippReadIO` function may under-read an extension
+                   field.
+
+ -- Utkarsh Gupta <utkarsh@debian.org>  Thu, 04 Jun 2020 16:08:27 +0530
+
 cups (1.7.5-11+deb8u7) jessie-security; urgency=medium
 
   * Non-maintainer upload by the LTS Team. 
