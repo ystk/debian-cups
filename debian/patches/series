@@ -77,3 +77,5 @@ CVE-2019-2228.patch
 CVE-20{20-3898,19-8842}.patch
 
 CVE-2020-10001.patch
+
+CVE-2023-32324.patch
