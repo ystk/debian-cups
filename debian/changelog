@@ -1,3 +1,10 @@
+cups (1.7.5-11+deb8u11) jessie-security; urgency=high
+
+  * CVE-2023-34241
+    use-after-free in cupsdAcceptClient()
+
+ -- Thorsten Alteholz <debian@alteholz.de>  Thu, 29 Jun 2023 22:30:27 +0200
+
 cups (1.7.5-11+deb8u10) jessie-security; urgency=high
 
   * CVE-2023-32324
