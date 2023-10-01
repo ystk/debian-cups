@@ -1,3 +1,20 @@
+cups (1.7.5-11+deb8u12) jessie-security; urgency=high
+
+  This release addresses a security issue (CVE-2023-32360) which allows
+  unauthorized users to fetch documents over local or remote networks.
+  Since this is a configuration fix, it might be that it does not reach you if you
+  are updating 'cups-daemon' (rather than doing a fresh installation).
+  Please double check your /etc/cups/cupds.conf file, whether it limits the access
+  to CUPS-Get-Document with something like the following
+  >  <Limit CUPS-Get-Document>
+  >    AuthType Default
+  >    Require user @OWNER @SYSTEM
+  >    Order deny,allow
+  >   </Limit>
+  (The important line is the 'AuthType Default' in this section)
+
+ -- Thorsten Alteholz <debian@alteholz.de>  Fri, 29 Sep 2023 21:20:27 +0200
+
 cups (1.7.5-7) unstable; urgency=medium
 
   CUPS can now be socket-activated when running under systemd as init, but
